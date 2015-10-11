@@ -1,0 +1,7 @@
+#lang plai-typed
+((lambda (x) (+ x 2)) 3)
+
+((lambda (f g) (f (g 3)))
+ (lambda (x) (+ x 3))
+ (lambda (x) (* x 2)))
+

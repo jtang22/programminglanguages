@@ -1,0 +1,18 @@
+#lang plai-typed
+; function for converting dollars to euro
+(define (dollar->euro [dollar : number]) : number
+  (* dollar .90))
+(test (dollar->euro 5) 4.5)
+
+;function sums money from a number of pennies, nickels, dimes, and quarters
+(define (sum-coins [pennies : number] [nickels : number] [dimes : number] [quarters : number]) : number
+  (+ (* quarters .25) (+ (* dimes .1) (+ (* pennies .01) (* nickels .05)))))
+
+(test (sum-coins 1 1 1 1) .41)
+
+;function that determines the interest rate of a bank account
+(define (interest [amount : number]) : number
+  (cond
+    [(<= amount 1000) (* amount .04)]
+    [(<= amount 5000) (* amount .045)]
+    [(> amount 5000) (* amount .05)]))

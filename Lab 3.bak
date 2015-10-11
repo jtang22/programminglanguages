@@ -1,0 +1,73 @@
+#lang plai-typed
+
+;representation of arithmetic expression
+(define-type ArithC
+  [numC (n : number)]
+  [plusC (l : ArithC) (r : ArithC)]
+  [multC (l : ArithC) (r : ArithC)])
+
+;evaluation method for arithc
+(define (eval [a : ArithC]) : number
+  (type-case ArithC a
+    [numC (n) n]
+    [plusC (l r) (+ (eval l) (eval r))]
+    [multC (l r) (* (eval l) (eval r))]))
+
+(test (eval (numC 5)) 5)
+(test (eval (plusC (numC 1) (numC 2))) 3)
+(test (eval (multC (numC 2) (numC 3))) 6)
+
+;Counts the numbers in an ArithC expression
+(define (num-nums [a : ArithC]) : number
+  (type-case ArithC a
+    [numC (n) 1]
+    [plusC (l r) (+ (num-nums l) (num-nums r))]
+    [multC (l r) (+ (num-nums l) (num-nums r))]))
+
+(test (num-nums (numC 5)) 1)
+(test (num-nums (plusC (numC 1) (numC 2))) 2)
+(test (num-nums (multC (numC 2) (plusC (numC 1) (numC 2)))) 3)
+
+;Representation of arithmetic expression including minus
+(define-type ArithS
+  [numS (n : number)]
+  [plusS (l : ArithS) (r : ArithS)]
+  [bminusS (l : ArithS) (r : ArithS)]
+  [multS (l : ArithS) (r : ArithS)]
+  [uminusS (l : ArithS)])
+
+;Parse for ArthS language
+(define (parse [s : s-expression]) : ArithC
+  (desugar (expr s)))
+
+;Evaluates expression for ArithS language
+(define (expr [s : s-expression]) : ArithS
+  (cond
+    [(s-exp-number? s) (numS (s-exp->number s))]
+    [(s-exp-list? s)
+     (let ([sl (s-exp->list s)])
+       (case (s-exp->symbol (first sl))
+         [(+) (plusS (expr (second sl)) (expr (third sl)))]
+         [(*) (multS (expr (second sl)) (expr (third sl)))]
+         [(-) (bminusS (expr (second sl)) (expr (third sl)))]
+         [else (error 'parse "invalid list input")]))]
+    [else (error 'parse "invalid input")]))
+
+;Desugarer for Arith parser
+(define (desugar [as : ArithS]) : ArithC
+ (type-case ArithS as
+   [numS (n) (numC n)]
+   [plusS (l r) (plusC (desugar l)
+                       (desugar r))]
+   [multS (l r) (multC (desugar l)
+                       (desugar r))]
+   [bminusS (l r) (plusC (desugar l)
+                         (multC (numC -1) (desugar r)))]
+   [uminusS (l) (multC (numC -1) (desugar l))]))
+
+(test (parse '(+ (* 1 2) 3)) (plusC (multC (numC 1) (numC 2)) (numC 3)))
+(test (parse '(- 3 2)) (plusC (numC 3) (multC (numC -1) (numC 2))))
+
+
+
+

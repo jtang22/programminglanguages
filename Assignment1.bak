@@ -1,0 +1,6 @@
+#lang plai-typed
+;function calculates total profit for a movie theater
+(define (total-profit [attendees : number]) : number
+  (- (* 5 attendees) ( + (* .5 attendees) 20)))
+
+(test)
