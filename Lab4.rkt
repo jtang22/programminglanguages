@@ -8,7 +8,7 @@
 
 ;Takes number a, returns function that takes number b, adds a + b
 ;(number -> (number -> number))
-(define (curried-add [a : number])
+(define (curried-add [a : number]) : (number -> number)
   (lambda (b) (+ a b)))
 
 (test ((curried-add 5) 3) 8)
