@@ -17,14 +17,20 @@
   [numC (n : number)]
   [plusC (l : ExprC) (r : ExprC)]
   [multC (l : ExprC) (r : ExprC)]
-  [ifleq0 (num : ExprC)(fn : symbol)])
+  [ifleq0 (test : ExprC)(fn : symbol)]
+  [idC (x : symbol)]
+  [appC (fn : symbol) (arg : ExprC)])
+
+;representation of arithmetic functino for LOOI2
+(define-type FundefC
+  [fdC (name : symbol) (param : symbol) (body : ExprC)])
 
 ;evaluation method for ExprC
 (define (interp [a : ExprC]) : number
   (type-case ExprC a
     [numC (n) n]
-    ;[idC (s : symbol) ]
-    ;[appC (fun : symbol) (arg : ExprC)]
+    [idC (s) 5]
+    [appC (f a) (error 'parse "appC eval")]
     [plusC (l r) (+ (interp l) (interp r))]
     [multC (l r) (* (interp l) (interp r))]
     [ifleq0 (n e) (error 'parse "ifleq branch")]))
@@ -32,6 +38,8 @@
 (test (interp (numC 5)) 5)
 (test (interp (plusC (numC 1) (numC 2))) 3)
 (test (interp (multC (numC 2) (numC 3))) 6)
+(test (interp (idC 'hello)) 5)
+(test/exn (interp (appC 'function (numC 5))) "appC eval")
 (test/exn (interp (ifleq0 (numC 5) 'hello)) "ifleq branch")
 
 ;Counts the numbers in an ExprC expression
@@ -73,7 +81,7 @@
           (bminusS (parser (second sl)) (parser (third sl)))]
          [(s-exp-match? '(- ANY) s)
           (uminusS (parser (second sl)))]
-         [(s-exp-match? '(SYMBOL) '(ifleq))
+         [(s-exp-match? '(ifleq0 ANY ANY ANY) s)
           (error 'parse "ifleq parse branch")]
          [else (error 'parse "invalid input")]))]))
     ;[else (error 'parse "invalid list input")]))
@@ -98,7 +106,7 @@
 (test (parse-prog '(- 3)) (multC (numC -1) (numC 3)))
 (test (parse-prog '(+ (* 5 6) (- 3))) (plusC (multC (numC 5) (numC 6)) (multC (numC -1) (numC 3))))
 (test (parse-prog '(- (* 3 (+ 5 10)))) (multC (numC -1) (multC (numC 3) (plusC (numC 5) (numC 10)))))
-(test/exn (parse-prog 'ifleq0))
+;(test/exn (parse-prog '(ifleq0 ))
 (test/exn (parse-prog '(+ 5 5 5)) "invalid input")
 
 (define (top-eval [fun-sexps : s-expression])  : number
