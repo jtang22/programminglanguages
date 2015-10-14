@@ -14,10 +14,9 @@
 
 ;representation of arithmetic expression
 (define-type ExprC
-  [numC (n : number)]
-  [plusC (l : ExprC) (r : ExprC)]
-  [multC (l : ExprC) (r : ExprC)]
-  [ifleq0 (test : ExprC)(fn : symbol)]
+  [numC (num : number)]
+  [binop (sym : symbol) (a : ExprC) (b : ExprC)]
+  [ifleq0 (test : ExprC) (then : ExprC) (else : ExprC)]
   [idC (x : symbol)]
   [appC (fn : symbol) (arg : ExprC)])
 
@@ -25,97 +24,76 @@
 (define-type FundefC
   [fdC (name : symbol) (param : symbol) (body : ExprC)])
 
+;lookup an operator for a binop expression
+(define (operator-lookup [s : symbol])
+  (cond
+    [(equal? '+ s) +]
+    [(equal? '* s) *]
+    [(equal? '- s) -]
+    [(equal? '/ s) /]
+    [else (error 'parse "illegal operation")]))
+
 ;evaluation method for ExprC
 (define (interp [a : ExprC]) : number
   (type-case ExprC a
     [numC (n) n]
     [idC (s) 5]
     [appC (f a) (error 'parse "appC eval")]
-    [plusC (l r) (+ (interp l) (interp r))]
-    [multC (l r) (* (interp l) (interp r))]
-    [ifleq0 (n e) (error 'parse "ifleq branch")]))
+    [binop (s a b) ((operator-lookup s) (interp a) (interp b))]
+    [ifleq0 (n t e)
+            (cond
+              [(= 0 (interp n)) (interp t)]
+              [else (interp e)])]))
 
 (test (interp (numC 5)) 5)
-(test (interp (plusC (numC 1) (numC 2))) 3)
-(test (interp (multC (numC 2) (numC 3))) 6)
 (test (interp (idC 'hello)) 5)
 (test/exn (interp (appC 'function (numC 5))) "appC eval")
-(test/exn (interp (ifleq0 (numC 5) 'hello)) "ifleq branch")
+(test (interp (ifleq0 (numC 5) (numC 5) (binop '+ (numC 4) (numC 5)))) 9)
+(test/exn (interp (binop '% (numC 5) (numC 6))) "illegal operation")
 
-;Counts the numbers in an ExprC expression
-;(define (num-nums [a : ExprC]) : number
-;  (type-case ExprC a
-;    [numC (n) 1]
-;    [plusC (l r) (+ (num-nums l) (num-nums r))]
-;    [multC (l r) (+ (num-nums l) (num-nums r))]))
-
-;(test (num-nums (numC 5)) 1)
-;(test (num-nums (plusC (numC 1) (numC 2))) 2)
-;(test (num-nums (multC (numC 2) (plusC (numC 1) (numC 2)))) 3)
-
-;Representation of arithmetic expression including minus
-(define-type ExprS
-  [numS (n : number)]
-  [plusS (l : ExprS) (r : ExprS)]
-  [bminusS (l : ExprS) (r : ExprS)]
-  [multS (l : ExprS) (r : ExprS)]
-  [uminusS (l : ExprS)])
-
-;Parse for ArthS language
-(define (parse-prog [s : s-expression]) : ExprC
-  (desugar (parser s)))
-
-;Evaluates an s-expression and returns as an ExprS
-;Rename to parser
-(define (parser [s : s-expression]) : ExprS
+;Evaluates an s-expression and returns as an ExprC
+(define (parse [s : s-expression]) : ExprC
   (cond
-    [(s-exp-number? s) (numS (s-exp->number s))]
+    [(s-exp-number? s) (numC (s-exp->number s))]
     [(s-exp-list? s)
      (let ([sl (s-exp->list s)])
        (cond
          [(s-exp-match? '(+ ANY ANY) s)
-          (plusS (parser (second sl)) (parser (third sl)))]
+          (binop '+ (parse (second sl)) (parse (third sl)))]
          [(s-exp-match? '(* ANY ANY) s)
-          (multS (parser (second sl)) (parser (third sl)))]
+          (binop '* (parse (second sl)) (parse (third sl)))]
          [(s-exp-match? '(- ANY ANY) s)
-          (bminusS (parser (second sl)) (parser (third sl)))]
-         [(s-exp-match? '(- ANY) s)
-          (uminusS (parser (second sl)))]
+          (binop '- (parse (second sl)) (parse (third sl)))]
+         [(s-exp-match? '(/ ANY ANY) s)
+          (binop '/ (parse (second sl)) (parse (third sl)))]
          [(s-exp-match? '(ifleq0 ANY ANY ANY) s)
-          (error 'parse "ifleq parse branch")]
+          (ifleq0 (parse (second sl)) (parse (third sl)) (parse (fourth sl)))]
          [else (error 'parse "invalid input")]))]))
     ;[else (error 'parse "invalid list input")]))
 
-;Desugarer for Arith parser
-(define (desugar [as : ExprS]) : ExprC
- (type-case ExprS as
-   [numS (n) (numC n)]
-   [plusS (l r) (plusC (desugar l)
-                       (desugar r))]
-   [multS (l r) (multC (desugar l)
-                       (desugar r))]
-   [bminusS (l r) (plusC (desugar l)
-                         (desugar (uminusS r)))]
-   [uminusS (l) (multC (numC -1) (desugar l))]))
-
-(test (parse-prog '(+ 3 2)) (plusC (numC 3) (numC 2)))
-(test (parse-prog '(* 3 2)) (multC (numC 3) (numC 2)))
-(test (parse-prog '(- 3 2)) (plusC (numC 3) (multC (numC -1) (numC 2))))
-(test (parse-prog '(+ (* 1 2) 3)) (plusC (multC (numC 1) (numC 2)) (numC 3)))
-(test (parse-prog '(- 3 2)) (plusC (numC 3) (multC (numC -1) (numC 2))))
-(test (parse-prog '(- 3)) (multC (numC -1) (numC 3)))
-(test (parse-prog '(+ (* 5 6) (- 3))) (plusC (multC (numC 5) (numC 6)) (multC (numC -1) (numC 3))))
-(test (parse-prog '(- (* 3 (+ 5 10)))) (multC (numC -1) (multC (numC 3) (plusC (numC 5) (numC 10)))))
-;(test/exn (parse-prog '(ifleq0 ))
-(test/exn (parse-prog '(+ 5 5 5)) "invalid input")
+(test (parse '(ifleq0 5 5 (+ 6 5))) (ifleq0 (numC 5) (numC 5) (binop '+ (numC 6) (numC 5))))
+(test (parse '(+ 5 5)) (binop '+ (numC 5) (numC 5)))
+(test (parse '(* 5 5)) (binop '* (numC 5) (numC 5)))
+(test (parse '(- 5 5)) (binop '- (numC 5) (numC 5)))
+(test/exn (parse '(+ 5 5 5)) "invalid input")
 
 (define (top-eval [fun-sexps : s-expression])  : number
-  (interp (parse-prog fun-sexps)))
+  (interp (parse fun-sexps)))
+
+(test (top-eval '(ifleq0 5 5 (+ 6 5))) 11)
+(test (top-eval '(ifleq0 0 5 (+ 6 5))) 5)
+(test (top-eval '(+ 5 5)) 10)
+(test (top-eval '(* 5 5)) 25)
+(test (top-eval '(- 5 5)) 0)
+(test (top-eval '(/ 25 5)) 5)
+;Substitution
+;(define (subst [what : ExprC] [for : symbol] [in : ExprC]) : ExprC
+;  <subst-body>)
 
 
-(test (top-eval '(+ (* 5 6) (- 3))) 27)
-(test (top-eval '(- (+ 30 20) (* (+ 4 (- 2)) 2))) 46)
-(test (top-eval '(- (* 10 (+ 30 (+ 10 10))))) -500)
+;(test (top-eval '(+ (* 5 6) (- 3))) 27)
+;(test (top-eval '(- (+ 30 20) (* (+ 4 (- 2)) 2))) 46)
+;(test (top-eval '(- (* 10 (+ 30 (+ 10 10))))) -500)
 
 ;(define (parse [s : s-expression]) : ExprC
 ;)
