@@ -158,8 +158,11 @@
        (map parse-fundef sl))]))
 
 (test (parse-prog '{func main x {+ 3 3}}) (list (fdC 'main (list 'x) (binop '+ (numC 3) (numC 3)))))
-(test (parse-prog '{{func main x {+ 3 3}} {func f x {+ 6 6}}}) (list (fdC 'main (list 'x) (binop '+ (numC 3) (numC 3)))
+(test (parse-prog '{{func main {+ 3 3}} {func f x {+ 6 6}}}) (list (fdC 'main (list) (binop '+ (numC 3) (numC 3)))
                                                                      (fdC 'f (list 'x) (binop '+ (numC 6) (numC 6)))))
+(test (parse-prog '{{func f x {+ x x}} {func main {f :D 1}}}) (list (fdC 'f (list 'x) (binop '+ (idC 'x) (idC 'x)))
+                                                                    (fdC 'main (list) (appC 'f (list (numC 1))))))
+;(test/exn (parse-prog '{hello}) "Invalid function")
 
 ;Substitution
 (define (subst [what : ExprC] [for : symbol] [in : ExprC]) : ExprC
@@ -209,7 +212,7 @@
                   [fdC (n p b) (interp (subst-all a p b) funs)])]
     [binop (s l r) ((operator-lookup s) (interp l funs) (interp r funs))]
     [ifleq0 (n t e) (cond
-                      ((= 0 (interp n funs)) (interp t funs))
+                      ((>= 0 (interp n funs)) (interp t funs))
                       (else (interp e funs)))]))
 
 (test (interp (binop '+ (numC 5) (numC 6)) (list (fdC 'f (list 'x) (idC 'x)))) 11)
@@ -254,5 +257,21 @@
             (parse-prog '{{func f x y {+ x y}}
                           {func main {f :D 1}}}))
            "wrong arity")
+(test (top-eval (quote ((func main (+ 1 2))))) 3)
+(test (top-eval (quote ((func main (* 2 1))))) 2)
+(test (top-eval (quote ((func minus x y (+ x (* -1 y))) (func main (minus :D 8 5))))) 3)
+(test (top-eval (quote ((func main (seven :D)) (func seven (minus :D (+ 3 10) (* 2 3))) (func minus x y (+ x (* -1 y)))))) 7)
+(test (top-eval (quote ((func main (twice :D (minus :D 8 5))) (func minus x y (+ x (* -1 y))) (func twice x (* 2 x))))) 6)
+(test (top-eval (quote ((func realtwice x (+ x x)) (func main (twice :D 15)) (func twice x (realtwice :D x))))) 30)
+(test (top-eval (quote ((func main (/ (- 13 3) (* 1 5)))))) 2)
+(test (begin (parse-fundef (quote (func f 6))) #t) #t)
+(test (top-eval (quote ((func main (ifleq0 (* 3 1) 3 (+ 2 9)))))) 11)
+(test (top-eval (quote ((func main (ifleq0 (- 0 (* 3 1)) (+ 4 5) (+ 2 9)))))) 9)
+(test (top-eval (quote ((func main (ifleq0 (* 3 0) 3 (+ 2 9)))))) 3)
+(test (top-eval (quasiquote ((func main (f :D 9)) (func f x (g :D 3 x)) (func g a b (+ a b))))) 12)
+(test (top-eval (quote ((func main (+ (f :D 13) (f :D 0))) (func f qq (ifleq0 qq qq (+ qq 1)))))) 14)
+(test (top-eval (quote ((func even? x (ifleq0 x 1 (odd? :D (- x 1)))) (func odd? x (ifleq0 x 0 (even? :D (- x 1)))) (func leq? x y (ifleq0 (- x y) 1 0)) (func main (even? :D 378))))) 1)
+(test (top-eval (quote ((func even? x (ifleq0 x 1 (odd? :D (- x 1)))) (func odd? x (ifleq0 x 0 (even? :D (- x 1)))) (func leq? x y (ifleq0 (- x y) 1 0)) (func main (even? :D 379))))) 0)
+
 
 
