@@ -176,8 +176,6 @@
                         (subst what for r))]
     [ifleq0 (n t e) (ifleq0 (subst what for n) (subst what for t) (subst what for e))]))
 
-;(map (lambda (x) (subst what for x)) a)
-
 (test (subst (numC 5) 'x (binop '+ (idC 'x) (numC 5))) (binop '+ (numC 5) (numC 5)))
 (test (subst (numC 5) 'y (binop '+ (idC 'x) (numC 5))) (binop '+ (idC 'x) (numC 5)))
 (test (subst (numC 5) 'x (ifleq0 (idC 'x) (idC 'x) (binop '+ (numC 5) (numC 5)))) (ifleq0 (numC 5) (numC 5) (binop '+ (numC 5) (numC 5))))

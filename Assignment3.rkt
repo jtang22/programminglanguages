@@ -123,7 +123,7 @@
 ;Takes environment and symbol, looks for symbol in environment
 (define (lookup [for : symbol] [env : Env]) : Value
   (cond
-    [(empty? env) (error 'parse "lookup failed")]
+    [(empty? env) (error 'lookup "lookup failed")]
     [else (cond
             [(symbol=? for (bind-name (first env)))
              (bind-val (first env))]
