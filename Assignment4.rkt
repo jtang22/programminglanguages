@@ -75,7 +75,7 @@
 ;Takes environment and symbol, looks for symbol in environment
 (define (lookup [for : symbol] [env : Env]) : Location
   (cond
-    [(empty? env) (error 'lookup "lookup failed")]
+    [(empty? env) (error 'lookup (string-append "lookup failed " (to-string for)))]
     [else (cond
             [(symbol=? for (bind-name (first env)))
              (bind-val (first env))]
@@ -180,6 +180,38 @@
 
 (test/exn (num<= (boolV #t) (numV 5)) "one argument was not a number")
 
+;Create list of params for with function
+;Takes a list of s-expressions, parses through left hand params
+;Returns a list of symbols
+(define (create-func-lam [sl : (listof s-expression)]) : (listof symbol)
+  (cond
+    [(empty? sl) empty]
+    [(s-exp-match? '(ANY = ANY) (first sl))
+     (cons (s-exp->symbol (first (s-exp->list (first sl))))
+           (create-func-lam (rest sl)))]
+    [else (error 'create-func-lam "invalid format")]))
+
+;Create list of args for with call
+;Takes a list of s-expressions, parses through right hand assignments
+;Returns a list of ExprC
+(define (create-func-args [sl : (listof s-expression)]) : (listof ExprC)
+  (cond
+    [(empty? sl) empty]
+    [(s-exp-match? '(ANY = ANY) (first sl))
+     (cons (parse (third (s-exp->list (first sl)))) (create-func-args (rest sl)))]
+    [else (error 'create-func-args "invalid format")]))
+
+(test/exn (create-func-args (list '{x})) "invalid format")
+
+;Give list of symbols to check for dups
+;Takes a list of symbols
+;Returns a false if there are dups, else returns true
+(define (check-params [params : (listof symbol)]) : boolean
+  (cond
+    [(empty? params) #t]
+    [(equal? #t (member (first params) (rest params))) #f]
+    [else (and #t (check-params (rest params)))]))
+
 ;Creates a list for a new array
 (define (create-new-array [num : number] [val : ExprC]) : (listof ExprC)
   (cond
@@ -206,17 +238,17 @@
                          [(equal? 'true (s-exp->symbol s)) (boolC #t)]
                          [(equal? 'false (s-exp->symbol s)) (boolC #f)]
                          [else (idC (s-exp->symbol s))])]
-    #;[(s-exp-boolean? s) (boolC (s-exp->boolean s))]
+    [(s-exp-boolean? s) (boolC (s-exp->boolean s))]
     [(s-exp-list? s)
      (let ([sl (s-exp->list s)])
        (cond
          [(s-exp-number? (first sl))
           (parse (first sl))]
-         #;[(s-exp-boolean? (first sl))
+         [(s-exp-boolean? (first sl))
           (parse (first sl))]
-         #;[(s-exp-match? '(if ANY ANY ANY) s)
+         [(s-exp-match? '(if ANY ANY ANY) s)
           (ifC (parse (second sl)) (parse (third sl)) (parse (fourth sl)))]
-         #;[(s-exp-match? '(with ANY ... ANY) s)
+         [(s-exp-match? '(with ANY ... ANY) s)
           (let ([params (create-func-lam (reverse (rest (reverse (rest sl)))))])
             (cond
               [(equal? #t (check-params params))
@@ -249,8 +281,8 @@
           (setArrC (parse (first sl)) (parse (second sl)) (parse (fourth sl)))]
          [(s-exp-match? '(ref ANY [ANY]) s)
           (refC (parse (second sl)) (parse (third sl)))]
-         #;[(s-exp-match? '(func SYMBOL ... ANY) s)
-          (let ([params (map s-exp->symbol (rest (reverse (rest sl))))])
+         [(s-exp-match? '(func SYMBOL ... ANY) s)
+          (let ([params (map s-exp->symbol (reverse (rest (reverse (rest sl)))))])
            (cond
             [(equal? #t (check-params params))
              (lamC params (parse (first (reverse sl))))]
@@ -258,21 +290,33 @@
          [(s-exp-match? '(ANY ANY ...) s)
           (appC (parse (first sl)) (map parse (rest sl)))]))]))
 
+(test (parse '{with {x = 5} {+ x 5}}) (appC (lamC (list 'x) (binop '+ (idC 'x) (numC 5))) (list (numC 5))))
+(test (parse '{with {x = 5} {y = 6} {+ x y}}) (appC (lamC (list 'x 'y) (binop '+ (idC 'x) (idC 'y))) (list (numC 5) (numC 6))))
 (test (parse '{+ 5 3}) (binop '+ (numC 5) (numC 3)))
 (test (parse '{- 5 3}) (binop '- (numC 5) (numC 3)))
 (test (parse '{* 5 3}) (binop '* (numC 5) (numC 3)))
 (test (parse '{/ 6 3}) (binop '/ (numC 6) (numC 3)))
 (test (parse '{eq? 5 5}) (binop 'eq? (numC 5) (numC 5)))
 (test (parse '{<= 5 6}) (binop '<= (numC 5) (numC 6)))
-(test (parse '{true}) (appC (boolC #t) (list)))
-(test (parse '{false}) (appC (boolC #f) (list)))
-(test (parse '{hello}) (appC (idC 'hello) (list)))
+(test (parse '{#t}) (boolC #t))
+(test (parse '{#f}) (boolC #f))
+(test (parse `true) (boolC #t))
+(test (parse `false) (boolC #f))
+(test (parse '{eq? #t #f}) (binop 'eq? (boolC #t) (boolC #f)))
+(test (parse '{func x y {+ x y}}) (lamC (list 'x 'y) (binop '+ (idC 'x) (idC 'y))))
+(test (parse '{with {x = {+ 5 4}} {+ x 1}}) (appC (lamC (list 'x) (binop '+ (idC 'x) (numC 1))) (list (binop '+ (numC 5) (numC 4)))))
+(test (parse '1) (numC 1))
+(test (parse '{#t}) (boolC #t))
+(test (parse '{if {eq? x 5} {x} {- x 5}}) (ifC (binop 'eq? (idC 'x) (numC 5)) (appC (idC 'x) (list)) (binop '- (idC 'x)(numC 5))))
+(test (parse '{5}) (numC 5))
+(test (parse '{func 9}) (lamC (list) (numC 9)))
 (test (parse '{array 3 14 false 5}) (arrayC 4 (list (numC 3) (numC 14) (boolC #f) (numC 5))))
-(test (parse '{new-array 3 0.0}) (arrayC 3 (list (numC 0.0) (numC 0.0) (numC 0.0))))
-(test (parse '{begin {f 9} p}) (beginC (list (appC (idC 'f) (list (numC 9)))) (idC 'p)))
-(test (parse '{ref p [15]}) (refC (idC 'p) (numC 15)))
+(test (parse '{new-array 3 14}) (arrayC 3 (list (numC 14) (numC 14) (numC 14))))
 (test (parse '{p [15] <- {f 6}}) (setArrC (idC 'p) (numC 15) (appC (idC 'f) (list (numC 6)))))
+(test (parse '{begin {f 9} p}) (beginC (list (appC (idC 'f) (list (numC 9)))) (idC 'p)))
 (test (parse '{l <- 9}) (setMutC (idC 'l) (numC 9)))
+(test (parse '{ref p [15]}) (refC (idC 'p) (numC 15)))
+(test/exn (parse '{with {x} {+ x 5}}) "invalid format")
 (test/exn (parse '{+}) "invalid parameter name")
 (test/exn (parse '{-}) "invalid parameter name")
 (test/exn (parse '{/}) "invalid parameter name")
@@ -281,6 +325,8 @@
 (test/exn (parse '{<=}) "invalid parameter name")
 (test/exn (parse '{if}) "invalid parameter name")
 (test/exn (parse '{with}) "invalid parameter name")
+(test/exn (parse '{func x x {+ x x}}) "Duplicate params")
+(test/exn (parse '{with {x = 5} {x = 5} {+ x x}}) "Duplicate with params")
 
 ;Interprets functions for evalution
 ;Takes an ExprC and an environment
@@ -289,16 +335,15 @@
   (type-case ExprC exp
     [numC (n) (v*s (numV n) sto)]
     [idC (s) (v*s (fetch (lookup s env) sto) sto)]
-    #;[appC (f a) (type-case Result (interp f env sto)
+    [appC (f a) (type-case Result (interp f env sto)
                     [v*s (v-f s-f)
-                         (let ([args (map (lambda(x) (interp x env sto)) a)])
+                         (type-case Value v-f
+                           [cloV (p b e)(let ([args-list (interp-elems a env s-f)])
                            (type-case Lookups (add-env-and-sto
-                                               env sto (cloV-param v-f) a)
-                             [env*sto (interp (cloV-body v-f)())]))
-                         #;(type-case Value val
-                           [numV (n) (error 'interp "not a closure")]
-                           [cloV (p b e) (interp b (create-clos-env p (map (lambda (x) (interp x env sto)) a) e) sto)]
-                           [boolV (b) (error 'interp "not a closure")])])]
+                                               e (get-store args-list s-f) (cloV-param v-f)
+                                               args-list)
+                             [env*sto (e-l s-l) (interp (cloV-body v-f) e-l s-l)]))]
+                           [else (error 'interp "not a closure")])])]
     [binop (s l r) (cond
                       [(equal? '+ s) (type-case Result (interp l env sto)
                                        [v*s (v-l s-l)
@@ -330,24 +375,27 @@
                                             (type-case Result (interp r env sto)
                                               [v*s (v-r s-r)
                                                    (v*s (num<= v-l v-r) s-r)])])])]
-    #;[lamC (p b) (cloV p b env)]
+    [lamC (p b) (v*s (cloV p b env) sto)]
     [boolC (b) (cond
                  [(equal? b #t) (v*s (boolV #t) sto)]
                  [else (v*s (boolV #f) sto)])]
-    #;[ifC (c t e) (type-case Value (interp c env sto)
-                   [numV (n) (error 'interpNum "Non boolean eval")]
-                   [cloV (p b e) (error 'interpClo "Non boolean eval")]
-                   [boolV (b) (cond
-                                [(equal? b #t) (interp t env sto)]
-                                [else (interp e env sto)])])]
-    [arrayC (size e) (type-case Alloc (allocate sto (map (lambda(x) (interp x env sto)) e) -1)
+    [ifC (c t e) (type-case Result (interp c env sto)
+                   [v*s (v-c s-c)
+                        (type-case Value v-c
+                          [boolV (b) (cond
+                                       [(equal? b #t) (interp t env s-c)]
+                                       [else (interp e env sto)])]
+                          [else (error 'interp "non-boolean value")])])]
+    [arrayC (size e) (type-case Alloc (allocate sto (interp-elems e env sto) -1)
                        [loc*sto (l s) (v*s (arrayV size l) s)])]
     [refC (name loc) (type-case Result (interp name env sto)
                        [v*s (v-l s-l)
                             (type-case Result (interp loc env s-l)
                               [v*s (v-r s-r)
                                    (v*s (fetch (numV-num v-r) s-r) s-r)])])]
-    #;[beginC (e v) (interp v env (eval-begin e))]
+    [beginC (e v) (let ([eval-list (interp-elems e env sto)])
+                    (interp v env (get-store eval-list sto)))]
+    
     [else (error 'interp "not implemented")]))
 
 (test (interp (binop '+ (numC 5) (numC 6)) mt-env mt-store) (v*s (numV 11) mt-store))
@@ -360,7 +408,10 @@
 (test (interp (binop 'eq? (boolC #f) (boolC #t)) mt-env mt-store) (v*s (boolV #f) mt-store))
 (test (interp (binop 'eq? (numC 5) (numC 6)) mt-env mt-store) (v*s (boolV #f) mt-store))
 (test (interp (binop 'eq? (numC 5) (numC 5)) mt-env mt-store) (v*s (boolV #t) mt-store))
-(test/exn (interp (ifC (boolC #t) (numC 5) (numC 6)) mt-env mt-store) "not implemented")
+(test (interp (ifC (boolC #t) (numC 5) (numC 6)) mt-env mt-store) (v*s (numV 5) mt-store))
+(test (interp (ifC (boolC #f) (numC 5) (numC 6)) mt-env mt-store) (v*s (numV 6) mt-store))
+(test/exn (interp (ifC (numC 5) (numC 5) (numC 5)) mt-env mt-store) "non-boolean value")
+(test/exn (interp (appC (numC 5) (list (numC 6))) mt-env mt-store) "not a closure")
 
 ;Finds next open location in storage
 (define (find-next-base [sto : Store] [cur-loc : Location]) : Location
@@ -379,34 +430,70 @@
    [(empty? val) (loc*sto base-loc sto)]
    [else (allocate (cons (cell (find-next-base sto base-loc) (v*s-v(first val))) sto) (rest val) base-loc)]))
 
-;Gets an array from a store
-(define (get-array [sto : Store] [array : Value] [size : number]) : (listof Result)
+;Interps elements of array and threads store through them
+(define (interp-elems [elems : (listof ExprC)] [env : Env] [sto : Store]) : (listof Result)
   (cond
-    [(= (arrayV-size array) size) empty]
-    [else (cons (v*s (fetch (+ (arrayV-base array) size) sto) sto)
-                (get-array sto array (+ 1 size)))]))
+    [(empty? elems) empty]
+    [else (let ([res (interp (first elems) env sto)])
+            (type-case Result res
+            [v*s (v-f s-f)
+                 (cons res (interp-elems (rest elems) env s-f))]))]))
+
+;Gets latest store from a list of results
+(define (get-store [results : (listof Result)] [sto : Store]) : Store
+  (cond
+    [(empty? results) sto]
+    [else (v*s-s (first (reverse results)))]))
+
+;Adds an array to storage
+#;(define (add-array-store [sto-ret : Store] [sto-arr : Store] ))
 
 ;Adds on to environment and store for an application
-(define (add-env-and-sto [env : Env] [sto : Store] [params : (listof symbol)] [args : (listof ExprC)]) : Lookups
+(define (add-env-and-sto [env : Env] [sto : Store] [params : (listof symbol)] [args : (listof Result)]) : Lookups
   (cond
     [(empty? params)
      (cond
-       [(empty? args) (env*sto env sto)])]
-    [(= (length env) (length sto))
-     (type-case Result (interp (first args) env sto)
+       [(empty? args) (env*sto env sto)]
+       [else (error 'add-env-and-sto "wrong arity")])]
+    [(= (length params) (length args))
+     (type-case Result (first args)
        [v*s (v-f s-f)
-            (type-case Value v-f
-              [arrayV (size b)
-                      (type-case Alloc (allocate sto (get-array s-f v-f 0) -1)
-                        [loc*sto (l-a s-a) (add-env-and-sto
-                                        (extend-env (bind (first params) l-a) env)
-                                        s-a (rest params) (rest args))])]
-              [else (let ([where (find-next-base sto -1)])
-                      (add-env-and-sto (extend-env (bind (first params) where) env)
-                                       (override-store (cell where v-f) sto)
-                                       (rest params) (rest args)))])])]
+            (let ([where (find-next-base sto -1)])
+              (type-case Value v-f
+                [arrayV (size b)
+                        (add-env-and-sto
+                         (extend-env (bind (first params) b) env)
+                         s-f (rest params) (rest args))]
+                [else (add-env-and-sto (extend-env (bind (first params) where) env)
+                               (override-store (cell where v-f) sto)
+                               (rest params) (rest args))]))])]
     [else (error 'add-env-and-sto "wrong arity")]))
 
+(test (add-env-and-sto (list) (list) (list 'x 'y) (list (v*s (numV 5) mt-store) (v*s (numV 6) mt-store)))
+      (env*sto (list (bind 'y 1) (bind 'x 0)) (list (cell 1 (numV 6)) (cell 0 (numV 5)))))
+(test/exn (add-env-and-sto (list) (list (cell 0 (numV 5))) (list) (list (v*s (numV 5) (list)))) "wrong arity")
+(test/exn (add-env-and-sto (list) (list) (list 'x) (list (v*s (numV 6) (list))(v*s (numV 5) (list)))) "wrong arity")
+
+;Takes a Value
+;Returns the value as a string
+(define (serialize [val : Result]) : string
+  (type-case Value (v*s-v val)
+    [numV (n) (to-string n)]
+    [cloV (p b e) "#<procedure>"]
+    [boolV (b) (cond
+                 [(equal? #t b) "true"]
+                 [else "false"])]
+    [arrayV (s b) "not implemented"]))
+
+(test (serialize (v*s (numV 5) mt-store)) "5")
+(test (serialize (v*s (boolV #t) mt-store)) "true")
+(test (serialize (v*s (boolV #f) mt-store)) "false")
+(test (serialize (v*s (cloV (list 'h) (numC 5) mt-env) mt-store)) "#<procedure>")
+(test (serialize (v*s (arrayV 1 0) mt-store)) "not implemented")
+
+;Evaluates an s-expression, represents as a string
+(define (top-eval [s : s-expression]) : string
+  (serialize (interp (parse s) mt-env mt-store)))
 
 (test (allocate mt-store (list (v*s (numV 5) mt-store)) -1) (loc*sto 0 (list (cell 0 (numV 5)))))
 (test (allocate mt-store (list (v*s (numV 5) mt-store) (v*s (numV 6) mt-store)
@@ -430,3 +517,17 @@
              (list (bind 'p 0))
              (list (cell 2 (numV 3)) (cell 1 (numV 2)) (cell 0 (numV 1))))
       (v*s (numV 3) (list (cell 2 (numV 3)) (cell 1 (numV 2)) (cell 0 (numV 1)))))
+
+(test (interp (appC
+                 (lamC (list 'p) (refC (idC 'p) (numC 1)))(list (arrayC 2 (list (numC 1)(numC 2)))))
+              (list (bind 'x 0))
+              (list (cell 0 (numV 5))))
+      (v*s (numV 1) (list (cell 2 (numV 2)) (cell 1 (numV 1)) (cell 0 (numV 5)))))
+
+(test (top-eval (quote ((func seven (seven))
+                  ((func minus
+                         (func (minus (+ 3 10) (* 2 3))))
+                   (func x y (+ x (* -1 y))))))) "7")
+
+(test (interp (beginC (list (numC 5) (arrayC 2 (list (numC 2) (numC 3)))) (numC 6)) mt-env mt-store)
+      (v*s (numV 6) (list (cell 1 (numV 3)) (cell 0 (numV 2)))))
