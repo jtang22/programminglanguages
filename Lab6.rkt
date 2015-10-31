@@ -258,6 +258,7 @@
 (interp (randomTerm 4) mt-env)
 (interp (randomTerm 3) mt-env)
 
+;Tests errors for a number of trials
 (define (errorTrials [trials : number] [depth : number] [errors : number]) : number
   (let ([num (try (begin (interp (randomTerm depth) mt-env) 1) (lambda() 0))])
     (cond

@@ -29,8 +29,7 @@
   [beginC (evals : (listof ExprC)) (val : ExprC)]
   [refC (name : ExprC) (loc : ExprC)]
   [setArrC (name : ExprC) (ndx : ExprC) (val : ExprC)]
-  [setMutC (name : ExprC) (val : ExprC)]
-  #;[new-array (elements : (listof ExprC))])
+  [setMutC (name : ExprC) (val : ExprC)])
 
 (define-type-alias Location number)
 
@@ -87,7 +86,7 @@
 ;Fetch data from memory location
 (define (fetch [loc : Location] [sto : Store]) : Value
   (cond
-    [(empty? sto) (error 'fetch "out of bounds")]
+    [(empty? sto) (error 'fetch (string-append "out of bounds " (to-string loc)))]
     [(eq? loc (cell-location (first sto))) (cell-val (first sto))]
     [else (fetch loc (rest sto))]))
 
@@ -211,6 +210,7 @@
     [(empty? params) #t]
     [(equal? #t (member (first params) (rest params))) #f]
     [else (and #t (check-params (rest params)))]))
+
 
 ;Creates a list for a new array
 (define (create-new-array [num : number] [val : ExprC]) : (listof ExprC)
@@ -395,8 +395,14 @@
                                    (v*s (fetch (numV-num v-r) s-r) s-r)])])]
     [beginC (e v) (let ([eval-list (interp-elems e env sto)])
                     (interp v env (get-store eval-list sto)))]
-    
-    [else (error 'interp "not implemented")]))
+    [setMutC (n v) (type-case Result (interp v env sto)
+                     [v*s (v-r s-r) (v*s v-r (cons (cell (lookup (idC-x n) env) v-r) s-r))])]
+    [setArrC (name ndx val) (type-case Result (interp val env sto)
+                              [v*s (v-r s-r) (type-case Result (interp ndx env sto)
+                                               [v*s (v-n s-n)
+                                                    (type-case Value (fetch (lookup (idC-x name) env) s-n)
+                                                      [arrayV (s b) (v*s v-r (cons (cell (+ b (numV-num v-n)) v-r) s-n))]
+                                                      [else (error 'interp "unbound array")])])])]))
 
 (test (interp (binop '+ (numC 5) (numC 6)) mt-env mt-store) (v*s (numV 11) mt-store))
 (test (interp (binop '- (numC 6) (numC 5)) mt-env mt-store) (v*s (numV 1) mt-store))
@@ -410,8 +416,19 @@
 (test (interp (binop 'eq? (numC 5) (numC 5)) mt-env mt-store) (v*s (boolV #t) mt-store))
 (test (interp (ifC (boolC #t) (numC 5) (numC 6)) mt-env mt-store) (v*s (numV 5) mt-store))
 (test (interp (ifC (boolC #f) (numC 5) (numC 6)) mt-env mt-store) (v*s (numV 6) mt-store))
+(test (interp (setMutC (idC 'p) (numC 5))
+              (list (bind 'p 0))
+              (list (cell 0 (numV 4))))
+      (v*s (numV 5) (list (cell 0 (numV 5)) (cell 0 (numV 4)))))
+(test (interp (setArrC (idC 'p) (numC 2) (numC 6))
+              (list (bind 'p 3))
+              (list (cell 3 (arrayV 3 0)) (cell 2 (numV 4)) (cell 1 (numV 3)) (cell 0 (numV 2))))
+      (v*s (numV 6) (list (cell 2 (numV 6)) (cell 3 (arrayV 3 0)) (cell 2 (numV 4)) (cell 1 (numV 3)) (cell 0 (numV 2)))))
 (test/exn (interp (ifC (numC 5) (numC 5) (numC 5)) mt-env mt-store) "non-boolean value")
 (test/exn (interp (appC (numC 5) (list (numC 6))) mt-env mt-store) "not a closure")
+(test/exn (interp (setArrC (idC 'p) (numC 2) (numC 6))
+              (list (bind 'p 0))
+              (list (cell 0 (numV 4)))) "unbound array")
 
 ;Finds next open location in storage
 (define (find-next-base [sto : Store] [cur-loc : Location]) : Location
@@ -446,7 +463,13 @@
     [else (v*s-s (first (reverse results)))]))
 
 ;Adds an array to storage
-#;(define (add-array-store [sto-ret : Store] [sto-arr : Store] ))
+(define (add-array-store [sto-ret : Store] [sto-arr : Store] [array  : Value] [cur-loc : Location]) : Store
+    (cond
+      [(= (arrayV-size array) cur-loc) sto-ret]
+      [else (let ([ndx (+ cur-loc (arrayV-base array))]
+                  [next-loc (find-next-base sto-ret -1)])
+              (add-array-store (cons (cell next-loc (fetch ndx sto-arr)) sto-ret)
+                               sto-arr array (+ 1 cur-loc)))]))
 
 ;Adds on to environment and store for an application
 (define (add-env-and-sto [env : Env] [sto : Store] [params : (listof symbol)] [args : (listof Result)]) : Lookups
@@ -462,15 +485,17 @@
               (type-case Value v-f
                 [arrayV (size b)
                         (add-env-and-sto
-                         (extend-env (bind (first params) b) env)
-                         s-f (rest params) (rest args))]
+                         (extend-env (bind (first params) where) env)
+                         (add-array-store sto s-f v-f 0) (rest params) (rest args))]
                 [else (add-env-and-sto (extend-env (bind (first params) where) env)
                                (override-store (cell where v-f) sto)
                                (rest params) (rest args))]))])]
     [else (error 'add-env-and-sto "wrong arity")]))
 
-(test (add-env-and-sto (list) (list) (list 'x 'y) (list (v*s (numV 5) mt-store) (v*s (numV 6) mt-store)))
+(test (add-env-and-sto mt-env mt-store (list 'x 'y) (list (v*s (numV 5) mt-store) (v*s (numV 6) mt-store)))
       (env*sto (list (bind 'y 1) (bind 'x 0)) (list (cell 1 (numV 6)) (cell 0 (numV 5)))))
+(test (add-env-and-sto mt-env (list (cell 0 (numV 5))) (list 'x) (list (v*s (arrayV 2 0) (list (cell 1 (numV 3)) (cell 0 (numV 4))))))
+      (env*sto (list (bind 'x 1)) (list (cell 2 (numV 3)) (cell 1 (numV 4)) (cell 0 (numV 5)))))
 (test/exn (add-env-and-sto (list) (list (cell 0 (numV 5))) (list) (list (v*s (numV 5) (list)))) "wrong arity")
 (test/exn (add-env-and-sto (list) (list) (list 'x) (list (v*s (numV 6) (list))(v*s (numV 5) (list)))) "wrong arity")
 
