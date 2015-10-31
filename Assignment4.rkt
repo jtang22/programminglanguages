@@ -60,7 +60,7 @@
 
 ;Result
 (define-type Result
-  [v*s (v : Value) (s : Store)])
+  [v*s (v : Value) (s : Store) (e : Env)])
 
 ;Allocation result
 (define-type Alloc
@@ -333,12 +333,12 @@
 ;Returns a value based on evaluated expression
 (define (interp [exp : ExprC] [env : Env] [sto : Store]) : Result
   (type-case ExprC exp
-    [numC (n) (v*s (numV n) sto)]
-    [idC (s) (v*s (fetch (lookup s env) sto) sto)]
+    [numC (n) (v*s (numV n) sto env)]
+    [idC (s) (v*s (fetch (lookup s env) sto) sto env)]
     [appC (f a) (type-case Result (interp f env sto)
-                    [v*s (v-f s-f)
+                    [v*s (v-f s-f e-f)
                          (type-case Value v-f
-                           [cloV (p b e)(let ([args-list (interp-elems a env s-f)])
+                           [cloV (p b e)(let ([args-list (interp-elems a e s-f)])
                            (type-case Lookups (add-env-and-sto
                                                e (get-store args-list s-f) (cloV-param v-f)
                                                args-list)
@@ -346,84 +346,85 @@
                            [else (error 'interp "not a closure")])])]
     [binop (s l r) (cond
                       [(equal? '+ s) (type-case Result (interp l env sto)
-                                       [v*s (v-l s-l)
-                                            (type-case Result (interp r env s-l)
-                                              [v*s (v-r s-r)
-                                                   (v*s (num+ v-l v-r) s-r)])])]
+                                       [v*s (v-l s-l e-l)
+                                            (type-case Result (interp r e-l s-l)
+                                              [v*s (v-r s-r e-r)
+                                                   (v*s (num+ v-l v-r) s-r e-r)])])]
                       [(equal? '- s) (type-case Result (interp l env sto)
-                                       [v*s (v-l s-l)
-                                            (type-case Result (interp r env sto)
-                                              [v*s (v-r s-r)
-                                                   (v*s (num- v-l v-r) s-r)])])]
+                                       [v*s (v-l s-l e-l)
+                                            (type-case Result (interp r e-l sto)
+                                              [v*s (v-r s-r e-r)
+                                                   (v*s (num- v-l v-r) s-r e-r)])])]
                       [(equal? '* s) (type-case Result (interp l env sto)
-                                       [v*s (v-l s-l)
-                                            (type-case Result (interp r env sto)
-                                              [v*s (v-r s-r)
-                                                   (v*s (num* v-l v-r) s-r)])])]
+                                       [v*s (v-l s-l e-l)
+                                            (type-case Result (interp r e-l sto)
+                                              [v*s (v-r s-r e-r)
+                                                   (v*s (num* v-l v-r) s-r e-r)])])]
                       [(equal? '/ s) (type-case Result (interp l env sto)
-                                       [v*s (v-l s-l)
-                                            (type-case Result (interp r env sto)
-                                              [v*s (v-r s-r)
-                                                   (v*s (num/ v-l v-r) s-r)])])]
+                                       [v*s (v-l s-l e-l)
+                                            (type-case Result (interp r e-l sto)
+                                              [v*s (v-r s-r e-r)
+                                                   (v*s (num/ v-l v-r) s-r e-r)])])]
                       [(equal? 'eq? s) (type-case Result (interp l env sto)
-                                       [v*s (v-l s-l)
-                                            (type-case Result (interp r env sto)
-                                              [v*s (v-r s-r)
-                                                   (v*s (numEq v-l v-r) s-r)])])]
+                                       [v*s (v-l s-l e-l)
+                                            (type-case Result (interp r e-l sto)
+                                              [v*s (v-r s-r e-r)
+                                                   (v*s (numEq v-l v-r) s-r e-r)])])]
                       [(equal? '<= s) (type-case Result (interp l env sto)
-                                       [v*s (v-l s-l)
-                                            (type-case Result (interp r env sto)
-                                              [v*s (v-r s-r)
-                                                   (v*s (num<= v-l v-r) s-r)])])])]
-    [lamC (p b) (v*s (cloV p b env) sto)]
+                                       [v*s (v-l s-l e-l)
+                                            (type-case Result (interp r e-l sto)
+                                              [v*s (v-r s-r e-r)
+                                                   (v*s (num<= v-l v-r) s-r e-r)])])])]
+    [lamC (p b) (v*s (cloV p b env) sto env)]
     [boolC (b) (cond
-                 [(equal? b #t) (v*s (boolV #t) sto)]
-                 [else (v*s (boolV #f) sto)])]
+                 [(equal? b #t) (v*s (boolV #t) sto env)]
+                 [else (v*s (boolV #f) sto env)])]
     [ifC (c t e) (type-case Result (interp c env sto)
-                   [v*s (v-c s-c)
+                   [v*s (v-c s-c e-c)
                         (type-case Value v-c
                           [boolV (b) (cond
-                                       [(equal? b #t) (interp t env s-c)]
-                                       [else (interp e env sto)])]
+                                       [(equal? b #t) (interp t e-c s-c)]
+                                       [else (interp e e-c sto)])]
                           [else (error 'interp "non-boolean value")])])]
     [arrayC (size e) (type-case Alloc (allocate sto (interp-elems e env sto) -1)
-                       [loc*sto (l s) (v*s (arrayV size l) s)])]
+                       [loc*sto (l s) (v*s (arrayV size l) s env)])]
     [refC (name loc) (type-case Result (interp name env sto)
-                       [v*s (v-l s-l)
-                            (type-case Result (interp loc env s-l)
-                              [v*s (v-r s-r)
-                                   (v*s (fetch (numV-num v-r) s-r) s-r)])])]
-    [beginC (e v) (let ([eval-list (interp-elems e env sto)])
-                    (interp v env (get-store eval-list sto)))]
+                       [v*s (v-l s-l e-l)
+                            (type-case Result (interp loc e-l s-l)
+                              [v*s (v-r s-r e-r)
+                                   (v*s (fetch (numV-num v-r) s-r) s-r e-r)])])]
+    [beginC (exp v) (let ([eval-list (interp-begins exp env sto)])
+                    (type-case Lookups eval-list
+                      [env*sto (e-l s-l) (interp v e-l s-l)]))]
     [setMutC (n v) (type-case Result (interp v env sto)
-                     [v*s (v-r s-r) (v*s v-r (cons (cell (lookup (idC-x n) env) v-r) s-r))])]
+                     [v*s (v-r s-r e-r) (v*s v-r (cons (cell (lookup (idC-x n) e-r) v-r) s-r) e-r)])]
     [setArrC (name ndx val) (type-case Result (interp val env sto)
-                              [v*s (v-r s-r) (type-case Result (interp ndx env sto)
-                                               [v*s (v-n s-n)
-                                                    (type-case Value (fetch (lookup (idC-x name) env) s-n)
-                                                      [arrayV (s b) (v*s v-r (cons (cell (+ b (numV-num v-n)) v-r) s-n))]
+                              [v*s (v-r s-r e-r) (type-case Result (interp ndx e-r sto)
+                                               [v*s (v-n s-n e-n)
+                                                    (type-case Value (fetch (lookup (idC-x name) e-n) s-n)
+                                                      [arrayV (s b) (v*s v-r (cons (cell (+ b (numV-num v-n)) v-r) s-n) e-n)]
                                                       [else (error 'interp "unbound array")])])])]))
 
-(test (interp (binop '+ (numC 5) (numC 6)) mt-env mt-store) (v*s (numV 11) mt-store))
-(test (interp (binop '- (numC 6) (numC 5)) mt-env mt-store) (v*s (numV 1) mt-store))
-(test (interp (binop '* (binop '/ (numC 10) (numC 2)) (numC 2)) mt-env mt-store) (v*s (numV 10) mt-store))
-(test (interp (binop '/ (numC 10) (numC 5)) mt-env mt-store) (v*s (numV 2) mt-store))
-(test (interp (binop '<= (numC 10) (numC 11)) mt-env mt-store) (v*s (boolV #t) mt-store))
-(test (interp (binop '<= (numC 10) (numC 9)) mt-env mt-store) (v*s (boolV #f) mt-store))
-(test (interp (binop 'eq? (boolC #t) (boolC #t)) mt-env mt-store) (v*s (boolV #t) mt-store))
-(test (interp (binop 'eq? (boolC #f) (boolC #t)) mt-env mt-store) (v*s (boolV #f) mt-store))
-(test (interp (binop 'eq? (numC 5) (numC 6)) mt-env mt-store) (v*s (boolV #f) mt-store))
-(test (interp (binop 'eq? (numC 5) (numC 5)) mt-env mt-store) (v*s (boolV #t) mt-store))
-(test (interp (ifC (boolC #t) (numC 5) (numC 6)) mt-env mt-store) (v*s (numV 5) mt-store))
-(test (interp (ifC (boolC #f) (numC 5) (numC 6)) mt-env mt-store) (v*s (numV 6) mt-store))
+(test (interp (binop '+ (numC 5) (numC 6)) mt-env mt-store) (v*s (numV 11) mt-store mt-env))
+(test (interp (binop '- (numC 6) (numC 5)) mt-env mt-store) (v*s (numV 1) mt-store mt-env))
+(test (interp (binop '* (binop '/ (numC 10) (numC 2)) (numC 2)) mt-env mt-store) (v*s (numV 10) mt-store mt-env))
+(test (interp (binop '/ (numC 10) (numC 5)) mt-env mt-store) (v*s (numV 2) mt-store mt-env))
+(test (interp (binop '<= (numC 10) (numC 11)) mt-env mt-store) (v*s (boolV #t) mt-store mt-env))
+(test (interp (binop '<= (numC 10) (numC 9)) mt-env mt-store) (v*s (boolV #f) mt-store mt-env))
+(test (interp (binop 'eq? (boolC #t) (boolC #t)) mt-env mt-store) (v*s (boolV #t) mt-store mt-env))
+(test (interp (binop 'eq? (boolC #f) (boolC #t)) mt-env mt-store) (v*s (boolV #f) mt-store mt-env))
+(test (interp (binop 'eq? (numC 5) (numC 6)) mt-env mt-store) (v*s (boolV #f) mt-store mt-env))
+(test (interp (binop 'eq? (numC 5) (numC 5)) mt-env mt-store) (v*s (boolV #t) mt-store mt-env))
+(test (interp (ifC (boolC #t) (numC 5) (numC 6)) mt-env mt-store) (v*s (numV 5) mt-store mt-env))
+(test (interp (ifC (boolC #f) (numC 5) (numC 6)) mt-env mt-store) (v*s (numV 6) mt-store mt-env))
 (test (interp (setMutC (idC 'p) (numC 5))
               (list (bind 'p 0))
               (list (cell 0 (numV 4))))
-      (v*s (numV 5) (list (cell 0 (numV 5)) (cell 0 (numV 4)))))
+      (v*s (numV 5) (list (cell 0 (numV 5)) (cell 0 (numV 4))) (list (bind 'p 0))))
 (test (interp (setArrC (idC 'p) (numC 2) (numC 6))
               (list (bind 'p 3))
               (list (cell 3 (arrayV 3 0)) (cell 2 (numV 4)) (cell 1 (numV 3)) (cell 0 (numV 2))))
-      (v*s (numV 6) (list (cell 2 (numV 6)) (cell 3 (arrayV 3 0)) (cell 2 (numV 4)) (cell 1 (numV 3)) (cell 0 (numV 2)))))
+      (v*s (numV 6) (list (cell 2 (numV 6)) (cell 3 (arrayV 3 0)) (cell 2 (numV 4)) (cell 1 (numV 3)) (cell 0 (numV 2))) (list (bind 'p 3))))
 (test/exn (interp (ifC (numC 5) (numC 5) (numC 5)) mt-env mt-store) "non-boolean value")
 (test/exn (interp (appC (numC 5) (list (numC 6))) mt-env mt-store) "not a closure")
 (test/exn (interp (setArrC (idC 'p) (numC 2) (numC 6))
@@ -453,8 +454,16 @@
     [(empty? elems) empty]
     [else (let ([res (interp (first elems) env sto)])
             (type-case Result res
-            [v*s (v-f s-f)
+            [v*s (v-f s-f e-f)
                  (cons res (interp-elems (rest elems) env s-f))]))]))
+
+;Interps expressions of a begin statement
+(define (interp-begins [exprs : (listof ExprC)] [env : Env] [sto : Store]) : Lookups
+  (cond
+    [(empty? exprs) (env*sto env sto)]
+    [else (let ([res (interp (first exprs) env sto)])
+            (type-case Result res
+              [v*s (v-f s-f e-f) (interp-begins (rest exprs) e-f s-f)]))]))
 
 ;Gets latest store from a list of results
 (define (get-store [results : (listof Result)] [sto : Store]) : Store
@@ -480,7 +489,7 @@
        [else (error 'add-env-and-sto "wrong arity")])]
     [(= (length params) (length args))
      (type-case Result (first args)
-       [v*s (v-f s-f)
+       [v*s (v-f s-f e-f)
             (let ([where (find-next-base sto -1)])
               (type-case Value v-f
                 [arrayV (size b)
@@ -492,12 +501,12 @@
                                (rest params) (rest args))]))])]
     [else (error 'add-env-and-sto "wrong arity")]))
 
-(test (add-env-and-sto mt-env mt-store (list 'x 'y) (list (v*s (numV 5) mt-store) (v*s (numV 6) mt-store)))
+(test (add-env-and-sto mt-env mt-store (list 'x 'y) (list (v*s (numV 5) mt-store mt-env) (v*s (numV 6) mt-store mt-env)))
       (env*sto (list (bind 'y 1) (bind 'x 0)) (list (cell 1 (numV 6)) (cell 0 (numV 5)))))
-(test (add-env-and-sto mt-env (list (cell 0 (numV 5))) (list 'x) (list (v*s (arrayV 2 0) (list (cell 1 (numV 3)) (cell 0 (numV 4))))))
+(test (add-env-and-sto mt-env (list (cell 0 (numV 5))) (list 'x) (list (v*s (arrayV 2 0) (list (cell 1 (numV 3)) (cell 0 (numV 4))) mt-env)))
       (env*sto (list (bind 'x 1)) (list (cell 2 (numV 3)) (cell 1 (numV 4)) (cell 0 (numV 5)))))
-(test/exn (add-env-and-sto (list) (list (cell 0 (numV 5))) (list) (list (v*s (numV 5) (list)))) "wrong arity")
-(test/exn (add-env-and-sto (list) (list) (list 'x) (list (v*s (numV 6) (list))(v*s (numV 5) (list)))) "wrong arity")
+(test/exn (add-env-and-sto (list) (list (cell 0 (numV 5))) (list) (list (v*s (numV 5) mt-store mt-env))) "wrong arity")
+(test/exn (add-env-and-sto (list) (list) (list 'x) (list (v*s (numV 6) mt-store mt-env)(v*s (numV 5) mt-store mt-env))) "wrong arity")
 
 ;Takes a Value
 ;Returns the value as a string
@@ -508,46 +517,46 @@
     [boolV (b) (cond
                  [(equal? #t b) "true"]
                  [else "false"])]
-    [arrayV (s b) "not implemented"]))
+    [arrayV (s b) "#<array>"]))
 
-(test (serialize (v*s (numV 5) mt-store)) "5")
-(test (serialize (v*s (boolV #t) mt-store)) "true")
-(test (serialize (v*s (boolV #f) mt-store)) "false")
-(test (serialize (v*s (cloV (list 'h) (numC 5) mt-env) mt-store)) "#<procedure>")
-(test (serialize (v*s (arrayV 1 0) mt-store)) "not implemented")
+(test (serialize (v*s (numV 5) mt-store mt-env)) "5")
+(test (serialize (v*s (boolV #t) mt-store mt-env)) "true")
+(test (serialize (v*s (boolV #f) mt-store mt-env)) "false")
+(test (serialize (v*s (cloV (list 'h) (numC 5) mt-env) mt-store mt-env)) "#<procedure>")
+(test (serialize (v*s (arrayV 1 0) mt-store mt-env)) "#<array>")
 
 ;Evaluates an s-expression, represents as a string
 (define (top-eval [s : s-expression]) : string
   (serialize (interp (parse s) mt-env mt-store)))
 
-(test (allocate mt-store (list (v*s (numV 5) mt-store)) -1) (loc*sto 0 (list (cell 0 (numV 5)))))
-(test (allocate mt-store (list (v*s (numV 5) mt-store) (v*s (numV 6) mt-store)
-                               (v*s (boolV #t) mt-store)) -1)
+(test (allocate mt-store (list (v*s (numV 5) mt-store mt-env)) -1) (loc*sto 0 (list (cell 0 (numV 5)))))
+(test (allocate mt-store (list (v*s (numV 5) mt-store mt-env) (v*s (numV 6) mt-store mt-env)
+                               (v*s (boolV #t) mt-store mt-env)) -1)
       (loc*sto 0 (list (cell 2 (boolV #t))
                        (cell 1 (numV 6))
                        (cell 0 (numV 5)))))
 (test (allocate (list (cell 2 (boolV #t))
                       (cell 1 (numV 6))
-                      (cell 0 (numV 5))) (list (v*s (numV 7) mt-store)
-                                               (v*s (numV 8) mt-store)) -1)
+                      (cell 0 (numV 5))) (list (v*s (numV 7) mt-store mt-env)
+                                               (v*s (numV 8) mt-store mt-env)) -1)
       (loc*sto 3 (list (cell 4 (numV 8))
                        (cell 3 (numV 7))
                        (cell 2 (boolV #t))
                        (cell 1 (numV 6))
                        (cell 0 (numV 5)))))
 (test (interp (arrayC 3 (list (numC 5) (numC 6) (numC 7))) mt-env mt-store)
-      (v*s (arrayV 3 0) (list (cell 2 (numV 7)) (cell 1 (numV 6)) (cell 0 (numV 5)))))
+      (v*s (arrayV 3 0) (list (cell 2 (numV 7)) (cell 1 (numV 6)) (cell 0 (numV 5))) (list)))
 
 (test (interp (refC (idC 'p) (numC 2))
              (list (bind 'p 0))
              (list (cell 2 (numV 3)) (cell 1 (numV 2)) (cell 0 (numV 1))))
-      (v*s (numV 3) (list (cell 2 (numV 3)) (cell 1 (numV 2)) (cell 0 (numV 1)))))
+      (v*s (numV 3) (list (cell 2 (numV 3)) (cell 1 (numV 2)) (cell 0 (numV 1))) (list (bind 'p 0))))
 
 (test (interp (appC
                  (lamC (list 'p) (refC (idC 'p) (numC 1)))(list (arrayC 2 (list (numC 1)(numC 2)))))
               (list (bind 'x 0))
               (list (cell 0 (numV 5))))
-      (v*s (numV 1) (list (cell 2 (numV 2)) (cell 1 (numV 1)) (cell 0 (numV 5)))))
+      (v*s (numV 1) (list (cell 2 (numV 2)) (cell 1 (numV 1)) (cell 0 (numV 5))) (list (bind 'p 3) (bind 'x 0))))
 
 (test (top-eval (quote ((func seven (seven))
                   ((func minus
@@ -555,4 +564,5 @@
                    (func x y (+ x (* -1 y))))))) "7")
 
 (test (interp (beginC (list (numC 5) (arrayC 2 (list (numC 2) (numC 3)))) (numC 6)) mt-env mt-store)
-      (v*s (numV 6) (list (cell 1 (numV 3)) (cell 0 (numV 2)))))
+      (v*s (numV 6) (list (cell 1 (numV 3)) (cell 0 (numV 2))) (list)))
+(test (top-eval '(begin (with (p = 1472) (p <- (array 1 2 3 4 5))) (ref p [2]))) "3")
