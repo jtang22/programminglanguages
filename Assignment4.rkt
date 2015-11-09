@@ -390,9 +390,13 @@
                        [loc*sto (l s) (v*s (arrayV size l) s)])]
     [refC (name loc) (type-case Result (interp name env sto)
                        [v*s (v-l s-l)
-                            (type-case Result (interp loc env s-l)
-                              [v*s (v-r s-r)
-                                   (v*s (fetch (numV-num v-r) s-r) s-r)])])]
+                            (type-case Value v-l
+                              [arrayV (size start) (type-case Result (interp loc env s-l)
+                                                     [v*s (v-r s-r)
+                                                          (v*s (fetch (+ (numV-num v-r) start) s-r) s-r)])]
+                              [else (type-case Result (interp loc env s-l)
+                                      [v*s (v-r s-r)
+                                           (v*s (fetch (numV-num v-r) s-r) s-r)])])])]
     [beginC (exp v) (interp v env (interp-begins exp env sto))]
     [setMutC (n v) (type-case Result (interp v env sto)
                      [v*s (v-r s-r) (v*s v-r (cons (cell (lookup (idC-x n) env) v-r) s-r))])]
@@ -559,17 +563,6 @@
 
 (test (interp (beginC (list (numC 5) (arrayC 2 (list (numC 2) (numC 3)))) (numC 6)) mt-env mt-store)
       (v*s (numV 6) (list (cell 1 (numV 3)) (cell 0 (numV 2)))))
-(parse '(begin (with (p = 1472) (p <- (array 1 2 3 4 5))) (ref p [2])))
-(test (top-eval '(begin (with (p = 1472) (p <- (array 1 2 3 4 5))) (ref p [2]))) "3")
-(parse (quote (with (f = (new-array 5 false)) (begin (f (0) <- 19) (f ((+ 0 1)) <- 20) (f (0) <- 87) (+ (* 100 (ref f (0))) (ref f (1)))))))
-(top-eval (quote (with (f = (new-array 5 false)) (begin (f (0) <- 19) (f ((+ 0 1)) <- 20) (f (0) <- 87) (+ (* 100 (ref f (0))) (ref f (1)))))))
-(interp (appC
- (lamC
-  (list 'f)
-  (beginC
-   (list (setArrC (idC 'f) (numC 0) (numC 19)) (setArrC (idC 'f) (appC (binop '+ (numC 0) (numC 1)) (list)) (numC 20)) (setArrC (idC 'f) (numC 0) (numC 87)))
-   (binop '+ (binop '* (numC 100) (refC (idC 'f) (numC 0))) (refC (idC 'f) (numC 1)))))
- (list (arrayC 5 (list (boolC #f) (boolC #f) (boolC #f) (boolC #f) (boolC #f))))) mt-env mt-store)
 (test (top-eval '((func
              empty
              ((func
@@ -600,3 +593,33 @@
                 (func l (eq? l empty))))
               (func a b (func select (if select a b)))))
             13)) "20")
+
+(test (top-eval '(with (p = 1472) (begin (p <- (array 1 2 3 4 5)) (ref p [2])))) "3")
+(parse (quote (with (f = (new-array 5 false)) (begin (f (0) <- 19) (f ((+ 0 1)) <- 20) (f (0) <- 87) (+ (* 100 (ref f (0))) (ref f (1)))))))
+(top-eval (quote (with (f = (new-array 5 false)) (begin (f (0) <- 19) (f ((+ 0 1)) <- 20) (f (0) <- 87) (+ (* 100 (ref f (0))) (ref f (1)))))))
+(interp (appC
+ (lamC
+  (list 'f)
+  (beginC
+   (list (setArrC (idC 'f) (numC 0) (numC 19)) (setArrC (idC 'f) (appC (binop '+ (numC 0) (numC 1)) (list)) (numC 20)) (setArrC (idC 'f) (numC 0) (numC 87)))
+   (binop '+ (binop '* (numC 100) (refC (idC 'f) (numC 0))) (refC (idC 'f) (numC 1)))))
+ (list (arrayC 5 (list (boolC #f) (boolC #f) (boolC #f) (boolC #f) (boolC #f))))) mt-env mt-store)
+(top-eval (quote (with (f = (new-array 5 false)) (begin (f (0) <- 19) (f ((+ 0 1)) <- 20) (f (0) <- 87) (+ (* 100 (ref f (0))) (ref f (1)))))))
+(top-eval (quote (with (a = 9) (b = (array 3 false true 19)) (d = 999) (with (c = (func (begin (d <- b) (b (3) <- 333) (+ (ref d (3)) a)))) (c)))))
+(top-eval (quote (with (a = 0) (with
+                                (a! = (func expected (if (eq? a expected) (a <- (+ 1 a)) (/ 1 0))))
+                                (begin (+ (a! 0) (a! 1))
+                                       (if (begin (a! 2) true) (a! 3) (/ 1 0))
+                                       (new-array (begin (a! 4) 34) (begin (a! 5) false))
+                                       ((begin (a! 6) (new-array 3 false)) ((begin (a! 7) 2)) <- (begin (a! 8) 98723))
+                                       (with (p = 9) (p <- (a! 9)))
+                                       ((begin (a! 10) (func x y (begin (a! 13) (+ x y))))
+                                        (begin (a! 11) 3) (begin (a! 12) 4)) 14)))))
+(top-eval (quote (with (halt = 1)
+                       (memory = (new-array 1000 0))
+                       (pc = 0)
+                       (with (go = (with (go = 3735928559)
+                                         (begin (go <- (func (with
+                                                              (opcode = (ref memory (pc)))
+                                                              (if (eq? opcode 0) (begin (pc <- (+ 1 pc)) (go)) (if (eq? opcode 1) pc (/ 1 0)))))) go)))
+                             (begin (memory (453) <- halt) (go))))))
