@@ -386,7 +386,7 @@
                                        [(equal? b #t) (interp t env s-c)]
                                        [else (interp e env sto)])]
                           [else (error 'interp "non-boolean value")])])]
-    [arrayC (size e) (type-case Alloc (allocate sto (interp-elems e env sto) -1)
+    [arrayC (size ele) (type-case Alloc (allocate sto (interp-elems ele env sto) -1)
                        [loc*sto (l s) (v*s (arrayV size l) s)])]
     [refC (name loc) (type-case Result (interp name env sto)
                        [v*s (v-l s-l)
@@ -444,7 +444,7 @@
    [(= base-loc -1) (let ([base (find-next-base sto base-loc)])(allocate
                     (cons (cell base (v*s-v (first val))) sto) (rest val) base))]
    [(empty? val) (loc*sto base-loc sto)]
-   [else (allocate (cons (cell (find-next-base sto base-loc) (v*s-v(first val))) sto) (rest val) base-loc)]))
+   [else (allocate (cons (cell (find-next-base sto -1) (v*s-v(first val))) sto) (rest val) base-loc)]))
 
 ;Interps elements of array and threads store through them
 (define (interp-elems [elems : (listof ExprC)] [env : Env] [sto : Store]) : (listof Result)
@@ -475,7 +475,7 @@
       [(= (arrayV-size array) cur-loc) sto-ret]
       [else (let ([ndx (+ cur-loc (arrayV-base array))]
                   [next-loc (find-next-base sto-ret -1)])
-              (add-array-store (cons (cell next-loc (fetch ndx sto-arr)) sto-ret)
+              (add-array-store (cons (cell next-loc(fetch ndx sto-arr)) sto-ret)
                                sto-arr array (+ 1 cur-loc)))]))
 
 ;Adds on to environment and store for an application
@@ -550,11 +550,7 @@
              (list (cell 2 (numV 3)) (cell 1 (numV 2)) (cell 0 (numV 1))))
       (v*s (numV 3) (list (cell 2 (numV 3)) (cell 1 (numV 2)) (cell 0 (numV 1)))))
 
-(test (interp (appC
-                 (lamC (list 'p) (refC (idC 'p) (numC 1)))(list (arrayC 2 (list (numC 1)(numC 2)))))
-              (list (bind 'x 0))
-              (list (cell 0 (numV 5))))
-      (v*s (numV 1) (list (cell 2 (numV 2)) (cell 1 (numV 1)) (cell 0 (numV 5)))))
+
 
 (test (top-eval (quote ((func seven (seven))
                   ((func minus
