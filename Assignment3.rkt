@@ -348,3 +348,34 @@
 (test (top-eval '((func bear (bear))
                   ((func cat
                          (func (+ cat 2))) 3))) "5")
+
+(parse '((func
+             empty
+             ((func
+               cons
+               ((func
+                 empty?
+                 ((func
+                   first
+                   ((func
+                     rest
+                     ((func
+                       Y
+                       ((func
+                         length
+                         ((func addup (addup (cons 3 (cons 17 empty))))
+                          (Y
+                           (func
+                            addup
+                            (func l (if (empty? l) 0 (+ (first l) (addup (rest l)))))))))
+                        (Y
+                         (func
+                          length
+                          (func l (if (empty? l) 0 (+ 1 (length (rest l)))))))))
+                      ((func x (func y (y (func z (((x x) y) z)))))
+                       (func x (func y (y (func z (((x x) y) z))))))))
+                    (func l (l false))))
+                  (func l (l true))))
+                (func l (eq? l empty))))
+              (func a b (func select (if select a b)))))
+            13))
