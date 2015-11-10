@@ -631,7 +631,8 @@
                                     ((begin (a! 6) (new-array 3 false)) ((begin (a! 7) 2)) <- (begin (a! 8) 98723))
                                     (with (p = 9) (p <- (a! 9)))
                                     ((begin (a! 10) (func x y (begin (a! 13) (+ x y))))
-                                     (begin (a! 11) 3) (begin (a! 12) 4)) 14)))))
+                                     (begin (a! 11) 3) (begin (a! 12) 4))
+                                    14)))))
 (test (top-eval (quote (with (a = 0) (with
                                       (a! = (func expected (if (eq? a expected) (a <- (+ 1 a)) (/ 1 0))))
                                       (begin (+ (a! 0) (a! 1))
