@@ -403,14 +403,15 @@
     [beginC (exp v) (interp v env (interp-begins exp env sto))]
     [setMutC (n v) (type-case Result (interp v env sto)
                      [v*s (v-r s-r) (v*s v-r (override-store (cell (lookup (idC-x n) env) v-r) s-r))])]
-    [setArrC (name ndx val) (type-case Result (interp val env sto)
-                              [v*s (v-r s-r) (type-case Result (interp ndx env s-r)
+    [setArrC (name ndx val) (type-case Result (interp name env sto)
+                              [v*s (v-i s-i) (type-case Result (interp ndx env s-i)
                                                [v*s (v-n s-n)
-                                                    (type-case Value (fetch (lookup (idC-x name) env) s-n)
-                                                      [arrayV (s b) (cond
-                                                                      [(>= (numV-num v-n) s) (error 'interp "array out of bounds")]
-                                                                      [else (v*s v-r (cons (cell (+ b (numV-num v-n)) v-r) s-n))])]
-                                                      [else (error 'interp (string-append "unbound array" (to-string (idC-x name))))])])])]))
+                                                    (type-case Result (interp val env s-n)
+                                                      [v*s (v-v s-v) (type-case Value v-i
+                                                                       [arrayV (s b) (cond
+                                                                                       [(>= (numV-num v-n) s) (error 'interp "array out of bounds")]
+                                                                                       [else (v*s v-v (cons (cell (+ b (numV-num v-n)) v-v) s-v))])]
+                                                                       [else (error 'interp (string-append "unbound array" (to-string (idC-x name))))])])])])]))
 
 (test (interp (binop '+ (numC 5) (numC 6)) mt-env mt-store) (v*s (numV 11) mt-store))
 (test (interp (binop '- (numC 6) (numC 5)) mt-env mt-store) (v*s (numV 1) mt-store ))
@@ -615,6 +616,7 @@
        (quote (with (f = (new-array 5 false)) (begin (f (0) <- 19) (f ((+ 0 1)) <- 20) (f (0) <- 87) (+ (* 100 (ref f (0))) (ref f (1))))))) "8720")
 (test (top-eval
  (quote (with (a = 9) (b = (array 3 false true 19)) (d = 999) (with (c = (func (begin (d <- b) (b (3) <- 333) (+ (ref d (3)) a)))) (c))))) "342")
+
 (test (top-eval (quote (with (halt = 1)
                        (memory = (new-array 1000 0))
                        (pc = 0)
@@ -623,15 +625,8 @@
                                                               (opcode = (ref memory (pc)))
                                                               (if (eq? opcode 0) (begin (pc <- (+ 1 pc)) (go)) (if (eq? opcode 1) pc (/ 1 0)))))) go)))
                              (begin (memory (453) <- halt) (go)))))) "453")
-(parse (quote (with (a = 0) (with
-                             (a! = (func expected (if (eq? a expected) (a <- (+ 1 a)) (/ 1 0))))
-                             (begin (+ (a! 0) (a! 1))
-                                    (if (begin (a! 2) true) (a! 3) (/ 1 0))
-                                    (new-array (begin (a! 4) 34) (begin (a! 5) false))
-                                    ((begin (a! 6) (new-array 3 false)) ((begin (a! 7) 2)) <- (begin (a! 8) 98723))
-                                    (with (p = 9) (p <- (a! 9)))
-                                    ((begin (a! 10) (func x y (begin (a! 13) (+ x y))))
-                                     (begin (a! 11) 3) (begin (a! 12) 4)) 14)))))
+
+
 (test (top-eval (quote (with (a = 0) (with
                                       (a! = (func expected (if (eq? a expected) (a <- (+ 1 a)) (/ 1 0))))
                                       (begin (+ (a! 0) (a! 1))
