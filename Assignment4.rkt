@@ -626,7 +626,6 @@
                                                               (if (eq? opcode 0) (begin (pc <- (+ 1 pc)) (go)) (if (eq? opcode 1) pc (/ 1 0)))))) go)))
                              (begin (memory (453) <- halt) (go)))))) "453")
 
-
 (test (top-eval (quote (with (a = 0) (with
                                       (a! = (func expected (if (eq? a expected) (a <- (+ 1 a)) (/ 1 0))))
                                       (begin (+ (a! 0) (a! 1))
