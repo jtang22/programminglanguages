@@ -1,9 +1,8 @@
 #lang plai-typed
 (require plai-typed/s-exp-match)
-;  Program	 	=	 	{ClassDef ... LOOI5}
-;  ClassDef	 	=	 	
-;{class id extends id {id ...}
-; {id {id ...} LOOI5}
+;  Program = {ClassDef ... LOOI5}
+;  ClassDef = {class id extends id {id ...}
+;             {id {id ...} LOOI5}
 ; ...}
 ;  LOOI5	 	=	 	num
 ; 	 	|	 	true
@@ -19,6 +18,7 @@
 ; 	 	|	 	{new id LOOI5 ...}
 ; 	 	|	 	{send LOOI5 id LOOI5 ...}
 ; 	 	|	 	{LOOI5 LOOI5 ...}
+(print-only-errors true)
 
 ;representation of arithmetic expression
 (define-type ExprC
@@ -36,9 +36,7 @@
   [refC (name : ExprC) (loc : ExprC)]
   [setArrC (name : ExprC) (ndx : ExprC) (val : ExprC)]
   [setMutC (name : ExprC) (val : ExprC)]
-  #;[SEND expands into WITH]
-  [recC (name : symbol) (rhs : ExprC) (body : ExprC)]
-  #;[newC (name : symbol) (args : (listof ExprC))])
+  [recC (name : symbol) (rhs : ExprC) (body : ExprC)])
 
 (define-type-alias Location number)
 
@@ -180,6 +178,8 @@
        [else (boolV #f)])]
     [else (boolV #f)]))
 (test (numEq (cloV (list) (numC 5) mt-env) (cloV (list) (numC 5) mt-env)) (boolV #f))
+(test (numEq (stringV "hello") (stringV "hello")) (boolV #t))
+(test (numEq (stringV "hello") (stringV "hi")) (boolV #f))
 
 ;helper function for less than or equal to
 ;Takes two values and checks if the first is less than or equal to second
@@ -226,9 +226,23 @@
     [(equal? #t (member (first params) (rest params))) #f]
     [else (and #t (check-params (rest params)))]))
 
-;Parses a program into an ExprC
+; {rec {Object = ...}
+;  {rec {Point = ...}
+;    {rec {3DPoint = ...}
+;      ...}}}
+;Parses a program into an ExprC to interp
 (define (parse-prog [program : s-expression]) : ExprC
-  (numC 0))
+  (let ([sl (s-exp->list program)])
+    (cond
+      [(= 1 (length sl)) (parse (first sl))]
+      [else (error 'parse-prog "not implem")#;(desugar-class-defs sl)])))
+
+(test/exn (parse-prog `{{"hello"} {"goodbye"}}) "not implem")
+
+;Desugars a given list of s-expression into class definitions
+#;(define (desugar-class-defs [sl : (listof s-expression)]) : ExprC
+  (cond
+    [(empty? sl) ]))
 
 ;Evaluates an s-expression and returns as an ExprC
 ;Takes an s-expression
@@ -249,12 +263,15 @@
                          [(equal? 'false (s-exp->symbol s)) (boolC #f)]
                          [else (idC (s-exp->symbol s))])]
     [(s-exp-boolean? s) (boolC (s-exp->boolean s))]
+    [(s-exp-string? s) (stringC (s-exp->string s))]
     [(s-exp-list? s)
      (let ([sl (s-exp->list s)])
        (cond
          [(s-exp-number? (first sl))
           (parse (first sl))]
          [(s-exp-boolean? (first sl))
+          (parse (first sl))]
+         [(s-exp-string? (first sl))
           (parse (first sl))]
          [(s-exp-match? '(if ANY ANY ANY) s)
           (ifC (parse (second sl)) (parse (third sl)) (parse (fourth sl)))]
@@ -295,6 +312,16 @@
               [(equal? #t (check-params params))
                (lamC params (parse (first (reverse sl))))]
               [else (error 'parse "Duplicate params")]))]
+         [(s-exp-match? '(rec (SYMBOL = ANY) ANY) s)
+          (cond
+           [(equal? 'with (s-exp->symbol (first (s-exp->list (second sl)))))
+            (error 'parse "invalid param name")]
+           [else (recC (s-exp->symbol (first (s-exp->list (second sl)))) (parse (third (s-exp->list (second sl)))) (parse (third sl)))])]
+         [(s-exp-match? '(new ANY ...) s)
+          (appC (parse (second sl)) (map parse (rest (rest sl))))]
+         [(s-exp-match? '(send ANY ANY ANY ...) s)
+          (let ([func-name (string->s-exp (symbol->string (s-exp->symbol (third sl))))])
+              (parse `{with {obj = ,(second sl)} {{obj ,func-name} obj ,@(rest (rest (rest sl)))}}))]
          [(s-exp-match? '(ANY ANY ...) s)
           (appC (parse (first sl)) (map parse (rest sl)))]))]))
 
@@ -310,6 +337,8 @@
 (test (parse '{#f}) (boolC #f))
 (test (parse `true) (boolC #t))
 (test (parse `false) (boolC #f))
+(test (parse '"hello") (stringC "hello"))
+(test (parse '{"hello"}) (stringC "hello"))
 (test (parse '{eq? #t #f}) (binop 'eq? (boolC #t) (boolC #f)))
 (test (parse '{func x y {+ x y}}) (lamC (list 'x 'y) (binop '+ (idC 'x) (idC 'y))))
 (test (parse '{with {x = {+ 5 4}} {+ x 1}}) (appC (lamC (list 'x) (binop '+ (idC 'x) (numC 1))) (list (binop '+ (numC 5) (numC 4)))))
@@ -324,6 +353,16 @@
 (test (parse '{begin {f 9} p}) (beginC (list (appC (idC 'f) (list (numC 9)))) (idC 'p)))
 (test (parse '{l <- 9}) (setMutC (idC 'l) (numC 9)))
 (test (parse '{ref p [15]}) (refC (idC 'p) (numC 15)))
+
+(test (parse `{rec {fact = {func y {if {eq? y 0} 1 {* y {fact {- y 1}}}}}} {fact 2}})
+      (recC 'fact (lamC (list 'y) (ifC (binop 'eq? (idC 'y) (numC 0))
+                                  (numC 1)
+                                  (binop '* (idC 'y) (appC (idC 'fact) (list (binop '- (idC 'y) (numC 1)))))))
+        (appC (idC 'fact) (list (numC 2)))))
+
+(parse '{send p1 add-x 999})
+(parse '{new Point 79 2})
+
 (test/exn (parse '{with {x} {+ x 5}}) "invalid format")
 (test/exn (parse '{+}) "invalid parameter name")
 (test/exn (parse '{-}) "invalid parameter name")
@@ -335,6 +374,7 @@
 (test/exn (parse '{with}) "invalid parameter name")
 (test/exn (parse '{func x x {+ x x}}) "Duplicate params")
 (test/exn (parse '{with {x = 5} {x = 5} {+ x x}}) "Duplicate with params")
+
 ;Interprets functions for evalution
 ;Takes an ExprC and an environment
 ;Returns a value based on evaluated expression
@@ -421,7 +461,11 @@
                                                                                        [(>= (numV-num v-n) s) (error 'interp "array out of bounds")]
                                                                                        [else (v*s v-v (override-store (cell (+ b (numV-num v-n)) v-v) s-v))])]
                                                                        [else (error 'interp (string-append "unbound array" (to-string (idC-x name))))])])])])]
-    [recC (name val  body) (error 'interp "rec not implemented")]))
+    [recC (n v b) (let ([where (find-next-base sto -1)])
+                    (let ([new-env (extend-env (bind n where) env)])
+                      (let ([inter-val (interp v new-env sto)])
+                        (let ([new-sto (override-store (cell where (v*s-v inter-val)) (v*s-s inter-val))])
+                          (interp b new-env new-sto)))))]))
 
 (test (interp (binop '+ (numC 5) (numC 6)) mt-env mt-store) (v*s (numV 11) mt-store))
 (test (interp (binop '- (numC 6) (numC 5)) mt-env mt-store) (v*s (numV 1) mt-store ))
@@ -435,6 +479,7 @@
 (test (interp (binop 'eq? (numC 5) (numC 5)) mt-env mt-store) (v*s (boolV #t) mt-store))
 (test (interp (ifC (boolC #t) (numC 5) (numC 6)) mt-env mt-store) (v*s (numV 5) mt-store))
 (test (interp (ifC (boolC #f) (numC 5) (numC 6)) mt-env mt-store) (v*s (numV 6) mt-store))
+(test (interp (stringC "hello") mt-env mt-store) (v*s (stringV "hello") mt-store))
 (test (interp (setMutC (idC 'p) (numC 5))
               (list (bind 'p 0))
               (list (cell 0 (numV 4))))
@@ -443,6 +488,7 @@
               (list (bind 'p 3))
               (list (cell 3 (arrayV 3 0)) (cell 2 (numV 4)) (cell 1 (numV 3)) (cell 0 (numV 2))))
       (v*s (numV 6) (list (cell 2 (numV 6)) (cell 3 (arrayV 3 0)) (cell 2 (numV 4)) (cell 1 (numV 3)) (cell 0 (numV 2)))))
+
 (test/exn (interp (ifC (numC 5) (numC 5) (numC 5)) mt-env mt-store) "non-boolean value")
 (test/exn (interp (appC (numC 5) (list (numC 6))) mt-env mt-store) "not a closure")
 (test/exn (interp (setArrC (idC 'p) (numC 2) (numC 6))
@@ -556,10 +602,11 @@
 (test (serialize (v*s (boolV #f) mt-store)) "false")
 (test (serialize (v*s (cloV (list 'h) (numC 5) mt-env) mt-store)) "#<procedure>")
 (test (serialize (v*s (arrayV 1 0) mt-store)) "#<array>")
+(test (serialize (v*s (stringV "hello") mt-store)) "hello")
 
 ;Evaluates an s-expression, represents as a string
 (define (top-eval [s : s-expression]) : string
-  (serialize (interp (parse s) mt-env mt-store)))
+  (serialize (interp (parse-prog s) mt-env mt-store)))
 
 (test (allocate mt-store (list (v*s (numV 5) mt-store)) -1) (loc*sto 0 (list (cell 0 (numV 5)))))
 (test (allocate mt-store (list (v*s (numV 5) mt-store) (v*s (numV 6) mt-store)
@@ -584,14 +631,14 @@
               (list (cell 3 (arrayV 3 0))(cell 2 (numV 3)) (cell 1 (numV 2)) (cell 0 (numV 1))))
       (v*s (numV 3) (list (cell 3 (arrayV 3 0))(cell 2 (numV 3)) (cell 1 (numV 2)) (cell 0 (numV 1)))))
 
-(test (top-eval (quote ((func seven (seven))
+(test (top-eval (quote (((func seven (seven))
                         ((func minus
                                (func (minus (+ 3 10) (* 2 3))))
-                         (func x y (+ x (* -1 y))))))) "7")
+                         (func x y (+ x (* -1 y)))))))) "7")
 
 (test (interp (beginC (list (numC 5) (arrayC (numC 2) (list (numC 2) (numC 3)))) (numC 6)) mt-env mt-store)
       (v*s (numV 6) (list (cell 1 (numV 3)) (cell 0 (numV 2)))))
-(test (top-eval '((func
+(test (top-eval '(((func
                    empty
                    ((func
                      cons
@@ -620,26 +667,26 @@
                         (func l (l true))))
                       (func l (eq? l empty))))
                     (func a b (func select (if select a b)))))
-                  13)) "20")
+                  13))) "20")
 
-(test (top-eval '(with (p = 1472) (begin (p <- (array 1 2 3 4 5)) (ref p [2])))) "3")
-(test/exn (top-eval '(with (f = (new-array 5 false)) (f (5) <- 19))) "array out of bounds")
+(test (top-eval '((with (p = 1472) (begin (p <- (array 1 2 3 4 5)) (ref p [2]))))) "3")
+(test/exn (top-eval '((with (f = (new-array 5 false)) (f (5) <- 19)))) "array out of bounds")
 (test (top-eval
-       (quote (with (f = (new-array 5 false)) (begin (f (0) <- 19) (f ((+ 0 1)) <- 20) (f (0) <- 87) (+ (* 100 (ref f (0))) (ref f (1))))))) "8720")
+       (quote ((with (f = (new-array 5 false)) (begin (f (0) <- 19) (f ((+ 0 1)) <- 20) (f (0) <- 87) (+ (* 100 (ref f (0))) (ref f (1)))))))) "8720")
 (test (top-eval
- (quote (with (a = 9) (b = (array 3 false true 19)) (d = 999) (with (c = (func (begin (d <- b) (b (3) <- 333) (+ (ref d (3)) a)))) (c))))) "342")
+ (quote ((with (a = 9) (b = (array 3 false true 19)) (d = 999) (with (c = (func (begin (d <- b) (b (3) <- 333) (+ (ref d (3)) a)))) (c)))))) "342")
 
-(test (top-eval (quote (with (halt = 1)
+(test (top-eval (quote ((with (halt = 1)
                        (memory = (new-array 1000 0))
                        (pc = 0)
                        (with (go = (with (go = 3735928559)
                                          (begin (go <- (func (with
                                                               (opcode = (ref memory (pc)))
                                                               (if (eq? opcode 0) (begin (pc <- (+ 1 pc)) (go)) (if (eq? opcode 1) pc (/ 1 0)))))) go)))
-                             (begin (memory (453) <- halt) (go)))))) "453")
+                             (begin (memory (453) <- halt) (go))))))) "453")
 
 
-(test (top-eval (quote (with (a = 0) (with
+(test (top-eval (quote ((with (a = 0) (with
                                       (a! = (func expected (if (eq? a expected) (a <- (+ 1 a)) (/ 1 0))))
                                       (begin (+ (a! 0) (a! 1))
                                              (if (begin (a! 2) true) (a! 3) (/ 1 0))
@@ -647,9 +694,12 @@
                                              ((begin (a! 6) (new-array 3 false)) ((begin (a! 7) 2)) <- (begin (a! 8) 98723))
                                              (with (p = 9) (p <- (a! 9)))
                                              ((begin (a! 10) (func x y (begin (a! 13) (+ x y))))
-                                              (begin (a! 11) 3) (begin (a! 12) 4)) 14))))) "14")
+                                              (begin (a! 11) 3) (begin (a! 12) 4)) 14)))))) "14")
 
-(test (top-eval (quote (with (make-incr = (func x (func (begin (x <- (+ x 1)) x)))) (with (incr = (make-incr 23)) (begin (incr) (incr) (incr)))))) "26")
+(test (top-eval (quote ((with (make-incr = (func x (func (begin (x <- (+ x 1)) x)))) (with (incr = (make-incr 23)) (begin (incr) (incr) (incr))))))) "26")
+
+(test (top-eval `{{rec {fact = {func y {if {eq? y 0} 1 {* y {fact {- y 1}}}}}} {fact 5}}}) "120")
+(test/exn (top-eval `{{rec {with = 34} 3}}) "invalid param name")
 
 #;(test (top-eval 
        `{{class Animal extends Object
