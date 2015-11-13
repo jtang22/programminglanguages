@@ -1,25 +1,30 @@
 #lang plai-typed
 (require plai-typed/s-exp-match)
-;  LOOI4	 	=	 	num
+;  Program	 	=	 	{ClassDef ... LOOI5}
+;  ClassDef	 	=	 	
+;{class id extends id {id ...}
+; {id {id ...} LOOI5}
+; ...}
+;  LOOI5	 	=	 	num
 ; 	 	|	 	true
 ; 	 	|	 	false
+; 	 	|	 	string
+; 	 	|	 	this
 ; 	 	|	 	id
-; 	 	|	 	{new-array LOOI4 LOOI4}
-; 	 	|	 	{array LOOI4 ...}
-; 	 	|	 	{ref LOOI4[LOOI4]}
-; 	 	|	 	{LOOI4[LOOI4] <- LOOI4}
-; 	 	|	 	{id <- LOOI4}
-; 	 	|	 	{begin LOOI4 LOOI4 ...}
-; 	 	|	 	{if LOOI4 LOOI4 LOOI4}
-; 	 	|	 	{with {id = LOOI4} ... LOOI4}
-; 	 	|	 	{func id ... LOOI4}
-; 	 	|	 	{operator LOOI4 LOOI4}
-; 	 	|	 	{LOOI4 LOOI4 ...}
+; 	 	|	 	{if LOOI5 LOOI5 LOOI5}
+; 	 	|	 	{with {id = LOOI5} ... LOOI5}
+; 	 	|	 	{func id ... LOOI5}
+; 	 	|	 	{operator LOOI5 LOOI5}
+; 	 	|	 	{rec {id = LOOI5} LOOI5}
+; 	 	|	 	{new id LOOI5 ...}
+; 	 	|	 	{send LOOI5 id LOOI5 ...}
+; 	 	|	 	{LOOI5 LOOI5 ...}
 
 ;representation of arithmetic expression
 (define-type ExprC
   [numC (num : number)]
   [boolC (bool : boolean)]
+  [stringC (str : string)]
   [binop (sym : symbol) (a : ExprC) (b : ExprC)]
   [idC (x : symbol)]
   [ifC (cond : ExprC) (then : ExprC) (else : ExprC)]
@@ -30,7 +35,10 @@
   [beginC (evals : (listof ExprC)) (val : ExprC)]
   [refC (name : ExprC) (loc : ExprC)]
   [setArrC (name : ExprC) (ndx : ExprC) (val : ExprC)]
-  [setMutC (name : ExprC) (val : ExprC)])
+  [setMutC (name : ExprC) (val : ExprC)]
+  #;[SEND expands into WITH]
+  [recC (name : symbol) (rhs : ExprC) (body : ExprC)]
+  #;[newC (name : symbol) (args : (listof ExprC))])
 
 (define-type-alias Location number)
 
@@ -41,6 +49,7 @@
         (body : ExprC)
         (env : Env)]
   [boolV (bool : boolean)]
+  [stringV (str : string)]
   [arrayV (size : number)
           (base : Location)])
 
@@ -165,6 +174,10 @@
      (cond
        [(equal? (boolV-bool l) (boolV-bool r)) (boolV #t)]
        [else (boolV #f)])]
+    [(and (stringV? l) (stringV? r))
+     (cond
+       [(equal? (stringV-str l) (stringV-str r)) (boolV #t)]
+       [else (boolV #f)])]
     [else (boolV #f)]))
 (test (numEq (cloV (list) (numC 5) mt-env) (cloV (list) (numC 5) mt-env)) (boolV #f))
 
@@ -213,7 +226,9 @@
     [(equal? #t (member (first params) (rest params))) #f]
     [else (and #t (check-params (rest params)))]))
 
-;(test (create-new-array 3 (numC 5)) (list (numC 5) (numC 5) (numC 5)))
+;Parses a program into an ExprC
+(define (parse-prog [program : s-expression]) : ExprC
+  (numC 0))
 
 ;Evaluates an s-expression and returns as an ExprC
 ;Takes an s-expression
@@ -273,8 +288,7 @@
          [(s-exp-match? '(ANY [ANY] <- ANY) s)
           (setArrC (parse (first sl)) (parse (first (s-exp->list (second sl)))) (parse (fourth sl)))]
          [(s-exp-match? '(ref ANY [ANY]) s)
-          (refC (parse (second sl)) (parse
-                                     (first (s-exp->list (third sl)))))]
+          (refC (parse (second sl)) (parse (first (s-exp->list (third sl)))))]
          [(s-exp-match? '(func SYMBOL ... ANY) s)
           (let ([params (map s-exp->symbol (reverse (rest (reverse (rest sl)))))])
             (cond
@@ -321,7 +335,6 @@
 (test/exn (parse '{with}) "invalid parameter name")
 (test/exn (parse '{func x x {+ x x}}) "Duplicate params")
 (test/exn (parse '{with {x = 5} {x = 5} {+ x x}}) "Duplicate with params")
-
 ;Interprets functions for evalution
 ;Takes an ExprC and an environment
 ;Returns a value based on evaluated expression
@@ -329,6 +342,7 @@
   (type-case ExprC exp
     [numC (n) (v*s (numV n) sto)]
     [idC (s) (v*s (fetch (lookup s env) sto) sto)]
+    [stringC (s) (v*s (stringV s) sto)]
     [appC (f a) (type-case Result (interp f env sto)
                   [v*s (v-f s-f)
                        (type-case Value v-f
@@ -406,7 +420,8 @@
                                                                        [arrayV (s b) (cond
                                                                                        [(>= (numV-num v-n) s) (error 'interp "array out of bounds")]
                                                                                        [else (v*s v-v (override-store (cell (+ b (numV-num v-n)) v-v) s-v))])]
-                                                                       [else (error 'interp (string-append "unbound array" (to-string (idC-x name))))])])])])]))
+                                                                       [else (error 'interp (string-append "unbound array" (to-string (idC-x name))))])])])])]
+    [recC (name val  body) (error 'interp "rec not implemented")]))
 
 (test (interp (binop '+ (numC 5) (numC 6)) mt-env mt-store) (v*s (numV 11) mt-store))
 (test (interp (binop '- (numC 6) (numC 5)) mt-env mt-store) (v*s (numV 1) mt-store ))
@@ -533,7 +548,8 @@
     [boolV (b) (cond
                  [(equal? #t b) "true"]
                  [else "false"])]
-    [arrayV (s b) "#<array>"]))
+    [arrayV (s b) "#<array>"]
+    [stringV (s) s]))
 
 (test (serialize (v*s (numV 5) mt-store)) "5")
 (test (serialize (v*s (boolV #t) mt-store)) "true")
@@ -635,14 +651,21 @@
 
 (test (top-eval (quote (with (make-incr = (func x (func (begin (x <- (+ x 1)) x)))) (with (incr = (make-incr 23)) (begin (incr) (incr) (incr)))))) "26")
 
-(test (top-eval (quote (with (a = 0)
-                             (b = (new-array 11 -1))
-                             (with (a! = (func expected (if (eq? a expected) (a <- (+ 1 a)) (/ 1 0))))
-                                   (begin (+ (a! 0) (a! 1))
-                                          (if (begin (a! 2) true) (a! 3) (/ 1 0))
-                                          (new-array (a! 4) (a! 5))
-                                          (array (a! 6) (a! 7) (a! 8))
-                                          (ref b [(a! 9)])
-                                          (if (begin (a! 10) false) (a! -1) (a! 11))
-                                          (a <- (a! 12))
-                                          (b [(- (a! 13) 10)] <- (a! 14))))))) "15")
+#;(test (top-eval 
+       `{{class Animal extends Object
+           {}
+           {eat {}
+                "An Animal eats some food"}
+           {eat-and-speak {}
+                          {begin
+                            {send this eat}
+                            {send this speak}}}
+           {speak {}
+                  "An Animal speaks"}}
+         
+         {class Dog extends Animal
+           {}
+           {speak {}
+                  "The dog says woof"}}
+         {with {dog = {new Dog}}
+               {send dog eat-and-speak}}}) "The dog says woof")
